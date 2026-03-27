@@ -1,0 +1,61 @@
+:root {
+  --bg: #08090D;
+  --s1: #0F1118;
+  --s2: #171B26;
+  --bd: #1E2333;
+  --bd-light: #2A3045;
+  --tx: #E4E6ED;
+  --tx-muted: #858A9B;
+  --tx-dim: #4D5268;
+  --gold: #C9A44C;
+  --gold-hover: #DABC6E;
+  --blue: #4A8FE7;
+  --green: #34C77B;
+  --red: #E74A4A;
+  --purple: #9B6DF0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bd);
+  border-radius: 3px;
+}
+
+button {
+  font-family: inherit;
+}
+button:hover {
+  filter: brightness(1.08);
+}
+
+select {
+  appearance: none;
+}
+
+textarea {
+  font-family: inherit;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
