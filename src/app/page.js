@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_BUSINESSES, EMPTY_DESIGN_SYSTEM } from '@/lib/businesses';
 import { Btn, Input, Select, Tag, FieldLabel, Icon } from '@/components/ui';
 import { saveFeedback, getFeedbackForAPI, getFeedbackStats, clearFeedback } from '@/lib/feedback';
-import { getPhotos, savePhotos, getPhotoManifestForAPI } from '@/lib/photo-storage';
+import { getPhotos, uploadPhotos, updatePhoto, deletePhoto, getPhotoManifestForAPI } from '@/lib/photo-storage';
 
 // ── Persist ─────────────────────────────────────────────────────────
 function lsGet(k, fb) { if (typeof window==='undefined') return fb; try { const r=localStorage.getItem(k); return r?JSON.parse(r):fb; } catch{return fb;} }
@@ -114,13 +114,13 @@ function GenPage({biz, addLib}) {
     for(let i=0;i<upd.length;i++){
       const item=upd[i]; if(!item.success||!item.result) continue;
 
-      // Determine which photo to send
+      // Determine which photo to send (now a URL, not base64)
       let photoDataUrl=null;
       const pidx = item.result.photo_index;
       if(pidx>=0 && photos[pidx]) {
-        photoDataUrl = photos[pidx].data;
+        photoDataUrl = photos[pidx].public_url;
       } else if(['photo_hero','process_steps','did_you_know','split_feature'].includes(item.result.template)&&photos.length>0){
-        photoDataUrl = photos[i%photos.length].data;
+        photoDataUrl = photos[i%photos.length].public_url;
       }
 
       try {
@@ -538,37 +538,48 @@ function BizPage({biz,setBiz}){
 
 
 // ══════════════════════════════════════════════════════════════════════
-// PHOTO BANK — RICH MANIFEST EDITOR
+// PHOTO BANK — SUPABASE STORAGE
 // ══════════════════════════════════════════════════════════════════════
 function PhotoPage({biz,onUpdate}){
   const [bizId,setBizId]=useState(biz[0]?.id||'');
   const [photos,setPhotos]=useState([]);
   const [busy,setBusy]=useState(false);
+  const [loading,setLoading]=useState(true);
   const fRef=useRef(null);
+  const debounceTimers=useRef({});
 
-  // Load from IndexedDB
-  useEffect(()=>{getPhotos(bizId).then(p=>setPhotos(p));},[bizId]);
-
-  const persistPhotos=(newPhotos)=>{setPhotos(newPhotos);savePhotos(bizId,newPhotos);};
+  // Load from Supabase
+  useEffect(()=>{
+    setLoading(true);
+    getPhotos(bizId).then(p=>{setPhotos(p);setLoading(false);});
+  },[bizId]);
 
   const upload=async e=>{
     const files=Array.from(e.target.files||[]);if(!files.length)return;
     setBusy(true);
-    const arr=[];
-    for(const f of files){
-      if(!f.type.startsWith('image/'))continue;
-      const data=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f);});
-      arr.push({data,filename:f.name,description:'',service_type:'general',branding:'',best_use:'',phone_visible:false,mood:'professional'});
-    }
-    const updated=[...photos,...arr];
-    persistPhotos(updated);
+    const newPhotos = await uploadPhotos(bizId, files);
+    if(newPhotos.length) setPhotos(p=>[...p,...newPhotos]);
     setBusy(false);
     if(fRef.current)fRef.current.value='';
     onUpdate();
   };
 
-  const del=idx=>{const updated=photos.filter((_,i)=>i!==idx);persistPhotos(updated);onUpdate();};
-  const upd=(idx,field,val)=>{const a=[...photos];a[idx]={...a[idx],[field]:val};persistPhotos(a);};
+  const del=async(photo)=>{
+    setPhotos(p=>p.filter(x=>x.id!==photo.id));
+    await deletePhoto(photo.id, photo.storage_path);
+    onUpdate();
+  };
+
+  const upd=(photo,field,val)=>{
+    // Optimistic local update
+    setPhotos(p=>p.map(x=>x.id===photo.id?{...x,[field]:val}:x));
+    // Debounce the Supabase save (300ms for text fields)
+    const key=photo.id+field;
+    if(debounceTimers.current[key]) clearTimeout(debounceTimers.current[key]);
+    debounceTimers.current[key]=setTimeout(()=>{
+      updatePhoto(photo.id,{[field]:val});
+    }, field==='phone_visible'?0:300);
+  };
 
   const svcTypes=['general','exterior-waterproofing','foundation-repair','crawl-space','basement-waterproofing','drainage','mold-remediation','commercial','team-branded','product','office','lifestyle','equipment','screenshot'];
   const moods=['professional','casual','action','result','dramatic','clean'];
@@ -577,7 +588,7 @@ function PhotoPage({biz,onUpdate}){
     <div style={{padding:28}}>
       <div style={{marginBottom:22}}>
         <h1 style={{fontSize:22,fontWeight:700}}>Photo Bank</h1>
-        <p style={{color:'var(--tx-muted)',fontSize:13,marginTop:4}}>Upload photos with rich metadata. The AI reads descriptions, service types, and branding notes to select the right photo for each post.</p>
+        <p style={{color:'var(--tx-muted)',fontSize:13,marginTop:4}}>Upload photos with rich metadata. Photos stored in Supabase — they persist across devices and refreshes.</p>
       </div>
       <div style={{display:'flex',gap:14,alignItems:'flex-end',marginBottom:22}}>
         <div style={{minWidth:220}}>
@@ -588,38 +599,41 @@ function PhotoPage({biz,onUpdate}){
         <span style={{fontSize:12,color:'var(--tx-dim)'}}>{photos.length} photos</span>
       </div>
 
-      {!photos.length?(
+      {loading?(
+        <div style={{textAlign:'center',padding:'40px 20px'}}>
+          <div style={{fontSize:13,color:'var(--tx-muted)'}}>Loading photos...</div>
+        </div>
+      ):!photos.length?(
         <div style={{textAlign:'center',padding:'50px 20px',background:'var(--s1)',borderRadius:12,border:'1px dashed var(--bd)'}}>
           <div style={{fontSize:14,color:'var(--tx-muted)',fontWeight:500}}>No photos for this business</div>
           <div style={{fontSize:12,color:'var(--tx-dim)',marginTop:4}}>Upload photos and add descriptions so the AI can select the right one for each post.</div>
         </div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {photos.map((p,idx)=>(
-            <div key={idx} style={{background:'var(--s1)',border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',display:'grid',gridTemplateColumns:'160px 1fr',gap:0}}>
-              <div style={{width:160,aspectRatio:'4/5',backgroundImage:`url(${p.data})`,backgroundSize:'cover',backgroundPosition:'center',position:'relative',flexShrink:0}}>
-                <button onClick={()=>del(idx)} style={{position:'absolute',top:5,right:5,background:'rgba(0,0,0,.7)',border:'none',color:'var(--red)',cursor:'pointer',borderRadius:5,padding:'3px 5px',display:'flex'}}><Icon name="trash" size={12}/></button>
-                <div style={{position:'absolute',bottom:5,left:5,background:'rgba(0,0,0,.6)',borderRadius:4,padding:'1px 6px',fontSize:9,color:'#fff',fontWeight:700}}>#{idx+1}</div>
+          {photos.map((p)=>(
+            <div key={p.id} style={{background:'var(--s1)',border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',display:'grid',gridTemplateColumns:'160px 1fr',gap:0}}>
+              <div style={{width:160,aspectRatio:'4/5',backgroundImage:`url(${p.public_url})`,backgroundSize:'cover',backgroundPosition:'center',position:'relative',flexShrink:0}}>
+                <button onClick={()=>del(p)} style={{position:'absolute',top:5,right:5,background:'rgba(0,0,0,.7)',border:'none',color:'var(--red)',cursor:'pointer',borderRadius:5,padding:'3px 5px',display:'flex'}}><Icon name="trash" size={12}/></button>
               </div>
               <div style={{padding:'10px 14px',display:'flex',flexDirection:'column',gap:6}}>
                 <div style={{fontSize:10,color:'var(--tx-dim)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.filename}</div>
-                <input value={p.description||''} onChange={e=>upd(idx,'description',e.target.value)} placeholder="Wide side view, white brick split-level, 3+ crew digging..." style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'5px 8px',color:'var(--tx)',fontSize:11,fontFamily:'inherit',width:'100%',outline:'none',boxSizing:'border-box'}}/>
+                <input value={p.description||''} onChange={e=>upd(p,'description',e.target.value)} placeholder="Wide side view, white brick split-level, 3+ crew digging..." style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'5px 8px',color:'var(--tx)',fontSize:11,fontFamily:'inherit',width:'100%',outline:'none',boxSizing:'border-box'}}/>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
                   <div>
                     <div style={{fontSize:9,color:'var(--tx-dim)',marginBottom:2,textTransform:'uppercase'}}>Service</div>
-                    <select value={p.service_type||'general'} onChange={e=>upd(idx,'service_type',e.target.value)} style={{width:'100%',background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 5px',color:'var(--tx)',fontSize:10,fontFamily:'inherit'}}>
+                    <select value={p.service_type||'general'} onChange={e=>upd(p,'service_type',e.target.value)} style={{width:'100%',background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 5px',color:'var(--tx)',fontSize:10,fontFamily:'inherit'}}>
                       {svcTypes.map(s=><option key={s} value={s}>{s.replace(/-/g,' ')}</option>)}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:9,color:'var(--tx-dim)',marginBottom:2,textTransform:'uppercase'}}>Mood</div>
-                    <select value={p.mood||'professional'} onChange={e=>upd(idx,'mood',e.target.value)} style={{width:'100%',background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 5px',color:'var(--tx)',fontSize:10,fontFamily:'inherit'}}>
+                    <select value={p.mood||'professional'} onChange={e=>upd(p,'mood',e.target.value)} style={{width:'100%',background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 5px',color:'var(--tx)',fontSize:10,fontFamily:'inherit'}}>
                       {moods.map(m=><option key={m} value={m}>{m}</option>)}
                     </select>
                   </div>
                   <div>
                     <div style={{fontSize:9,color:'var(--tx-dim)',marginBottom:2,textTransform:'uppercase'}}>Phone #?</div>
-                    <button onClick={()=>upd(idx,'phone_visible',!p.phone_visible)} style={{
+                    <button onClick={()=>upd(p,'phone_visible',!p.phone_visible)} style={{
                       width:'100%',padding:'3px 5px',borderRadius:5,fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
                       background:p.phone_visible?'rgba(52,199,123,0.15)':'var(--bg)',
                       border:`1px solid ${p.phone_visible?'rgba(52,199,123,0.3)':'var(--bd)'}`,
@@ -628,8 +642,8 @@ function PhotoPage({biz,onUpdate}){
                   </div>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-                  <input value={p.branding||''} onChange={e=>upd(idx,'branding',e.target.value)} placeholder="Branding: Blue shirts, phone # legible" style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'4px 7px',color:'var(--tx)',fontSize:10,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
-                  <input value={p.best_use||''} onChange={e=>upd(idx,'best_use',e.target.value)} placeholder="Best for: Hero shot, project showcase" style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'4px 7px',color:'var(--tx)',fontSize:10,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                  <input value={p.branding||''} onChange={e=>upd(p,'branding',e.target.value)} placeholder="Branding: Blue shirts, phone # legible" style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'4px 7px',color:'var(--tx)',fontSize:10,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                  <input value={p.best_use||''} onChange={e=>upd(p,'best_use',e.target.value)} placeholder="Best for: Hero shot, project showcase" style={{background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'4px 7px',color:'var(--tx)',fontSize:10,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
                 </div>
               </div>
             </div>
