@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_BUSINESSES, EMPTY_DESIGN_SYSTEM } from '@/lib/businesses';
-import { TEMPLATES, W, H } from '@/lib/templates';
 import { Btn, Input, Select, Tag, FieldLabel, Icon } from '@/components/ui';
 import { saveFeedback, getFeedbackForAPI, getFeedbackStats, clearFeedback } from '@/lib/feedback';
 
@@ -79,19 +78,19 @@ function GenPage({biz, addLib}) {
   const [err, setErr] = useState(null);
   const [allCopied, setAllCopied] = useState(false);
   const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
   const [fbStats, setFbStats] = useState({total:0,good:0,bad:0});
-  const canRef = useRef(null);
   const b = biz.find(x=>x.id===bizId);
 
   useEffect(()=>{setFbStats(getFeedbackStats(bizId));},[bizId,batch]);
 
   const generateBatch = async()=>{
     if(!b) return;
-    setLoading(true); setErr(null); setBatch([]);
+    setLoading(true); setErr(null); setBatch([]); setRenderProgress(0);
     try {
       const feedback = getFeedbackForAPI(bizId);
       const photoManifest = getManifestForAPI(bizId);
-      const photos = getPhotoManifest(bizId); // full with data for rendering
+      const photos = getPhotoManifest(bizId);
 
       const resp = await fetch('/api/generate',{
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -104,32 +103,47 @@ function GenPage({biz, addLib}) {
         ...r, imageData:null, selected:r.success, id:`${Date.now()}-${idx}`, feedbackGiven:false,
       }));
       setBatch(items);
-      await renderAll(items, b, photos);
-    } catch(e) { setErr(e.message||'Failed'); }
-    setLoading(false);
+      setLoading(false);
+
+      // Render images progressively via server
+      await renderAllServer(items, b, photos);
+    } catch(e) { setErr(e.message||'Failed'); setLoading(false); }
   };
 
-  const renderAll = async(items, bizData, photos)=>{
-    setRendering(true);
-    const c=canRef.current; if(!c){setRendering(false);return;}
-    c.width=W; c.height=H;
-    const ctx=c.getContext('2d');
+  const renderAllServer = async(items, bizData, photos)=>{
+    setRendering(true); setRenderProgress(0);
     const upd=[...items];
     for(let i=0;i<upd.length;i++){
       const item=upd[i]; if(!item.success||!item.result) continue;
-      ctx.clearRect(0,0,W,H);
-      // Use AI-selected photo or fallback to cycling
-      let photo=null;
+
+      // Determine which photo to send
+      let photoDataUrl=null;
       const pidx = item.result.photo_index;
       if(pidx>=0 && photos[pidx]) {
-        photo = photos[pidx].data;
-      } else if((item.result.template==='photo_feature'||item.result.template==='service_spotlight')&&photos.length>0){
-        photo = photos[i%photos.length].data;
+        photoDataUrl = photos[pidx].data;
+      } else if((item.result.template==='photo_hero'||item.result.template==='process_steps')&&photos.length>0){
+        photoDataUrl = photos[i%photos.length].data;
       }
-      const tpl=TEMPLATES[item.result.template];
-      if(tpl){try{await tpl.render(ctx,bizData,item.result,photo);upd[i]={...upd[i],imageData:c.toDataURL('image/png')};}catch(e){console.error(e);}}
+
+      try {
+        const resp = await fetch('/api/render',{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            content:item.result,
+            business:bizData,
+            templateId:item.result.template,
+            photoDataUrl,
+          }),
+        });
+        const data = await resp.json();
+        if(data.image){
+          upd[i]={...upd[i], imageData:data.image};
+          setBatch([...upd]);
+        }
+      } catch(e){ console.error(`Render ${i} failed:`,e); }
+      setRenderProgress(i+1);
     }
-    setBatch(upd); setRendering(false);
+    setBatch([...upd]); setRendering(false);
   };
 
   const toggle=(idx)=>setBatch(p=>p.map((it,i)=>i===idx?{...it,selected:!it.selected}:it));
@@ -170,7 +184,6 @@ function GenPage({biz, addLib}) {
 
   return(
     <div style={{padding:28}}>
-      <canvas ref={canRef} style={{display:'none'}}/>
       <div style={{marginBottom:22}}>
         <h1 style={{fontSize:22,fontWeight:700,letterSpacing:'-.02em'}}>Generate Content</h1>
         <p style={{color:'var(--tx-muted)',fontSize:13,marginTop:4}}>12 unique posts per batch. Rate posts to train AI. Photos selected intelligently from manifest.</p>
@@ -206,7 +219,7 @@ function GenPage({biz, addLib}) {
 
       {rendering&&!loading&&(
         <div style={{padding:'12px 18px',background:'rgba(201,164,76,0.08)',border:'1px solid rgba(201,164,76,0.2)',borderRadius:10,color:'var(--gold)',fontSize:13,marginBottom:20,display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:16,height:16,border:'2px solid var(--bd)',borderTop:'2px solid var(--gold)',borderRadius:'50%',animation:'spin .7s linear infinite'}}/>Rendering images...
+          <div style={{width:16,height:16,border:'2px solid var(--bd)',borderTop:'2px solid var(--gold)',borderRadius:'50%',animation:'spin .7s linear infinite'}}/>Rendering images... ({renderProgress}/{batch.filter(i=>i.success).length})
         </div>
       )}
 
@@ -504,8 +517,7 @@ function BizPage({biz,setBiz}){
                     ))}
                   </div>
                   <p style={{fontSize:12,color:'var(--tx-dim)',marginBottom:16}}>
-                    The design system, colors, gradients, fonts, CTA bar format, and trust badges are all passed to the AI during generation.
-                    The AI uses this context to write content that fits your visual identity. Phase 2 will use the design system to render custom HTML templates per business instead of generic canvas templates.
+                    The design system controls how images are rendered via server-side HTML templates. Fonts, gradients, CTA bar format, and trust badges are all baked into the rendering pipeline. The AI uses this context to write content that fits each visual identity.
                   </p>
                 </>
               )}

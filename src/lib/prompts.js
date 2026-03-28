@@ -42,11 +42,13 @@ const CONTENT_CATEGORIES = {
 };
 
 const TEMPLATE_DISTRIBUTION = [
-  'bold_statement', 'bold_statement', 'bold_statement',
-  'tip_card', 'tip_card', 'tip_card',
-  'photo_feature', 'photo_feature',
+  'photo_hero', 'photo_hero', 'photo_hero',
+  'full_graphic', 'full_graphic',
+  'checklist', 'checklist',
   'stat_callout', 'stat_callout',
-  'service_spotlight', 'service_spotlight',
+  'process_steps',
+  'review_showcase',
+  'full_graphic',
 ];
 
 const STAT_FRIENDLY = [
@@ -127,11 +129,21 @@ export function buildPrompt(business, category, template, feedbackItems = [], ph
   if (fb) sections.push(fb);
 
   // 8. Output format
-  const photoField = photoManifest.length > 0
-    ? ',"photo_index":-1'
-    : '';
+  const photoField = photoManifest.length > 0 ? ',"photo_index":-1' : '';
+
+  // Template-specific fields hint
+  const templateFields = {
+    photo_hero: ',"stats":[{"value":"...","label":"..."}],"items":[]',
+    full_graphic: ',"items":["service1","service2"]',
+    checklist: ',"items":["check item 1","check item 2"]',
+    review_showcase: ',"reviews":[{"text":"...","author":"Homeowner"}]',
+    process_steps: ',"items":[{"title":"Step Name","subtitle":"Description"}]',
+    stat_callout: ',"items":["context pill 1"]',
+  };
+  const extraFields = templateFields[template] || '';
+
   sections.push(
-    `Respond with ONLY valid JSON. No markdown. No backticks. No explanation.\n{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"${template}","cta":"..."${photoField}}`
+    `Respond with ONLY valid JSON. No markdown. No backticks. No explanation.\n{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"${template}","highlight_words":["word1"],"cta_line1":"...","cta_line2":"...","badge_label":"","eyebrow":""${extraFields}${photoField}}`
   );
 
   return sections.filter(Boolean).join('\n\n');
@@ -184,7 +196,7 @@ function buildDesignSystemContext(biz) {
 }
 
 function buildPhotoManifestContext(manifest, template) {
-  const needsPhoto = ['photo_feature', 'service_spotlight', 'before_after'].includes(template);
+  const needsPhoto = ['photo_hero', 'process_steps'].includes(template);
 
   let block = 'AVAILABLE PHOTOS (select the best one for this post):';
   manifest.forEach((photo, idx) => {
@@ -207,22 +219,35 @@ function buildPhotoManifestContext(manifest, template) {
 function buildRulesBlock(category, template) {
   return `CONTENT RULES:
 - NEVER use emojis anywhere
-- headline: punchy, max 10 words. For stat_callout, MUST be a number/stat (like "97%" or "$8K" or "3 in 5")
+- headline: punchy, max 10 words. For stat_callout, MUST be a number/stat (like "97%" or "$8K" or "3 in 5"). For review_showcase, use the rating like "5.0"
 - subtext: 1-2 sentences, max 25 words
 - caption: 2-3 short paragraphs, conversational, ends with CTA. For Instagram/LinkedIn. No hashtags in caption.
 - hashtags: 5 relevant (without # symbol)
-- cta: max 6 words, for image overlay. If CTA bar variations are listed above, pick one.
+- highlight_words: 1-3 key words from the headline to visually accent (these will be colored differently)
+- cta_line1: small text above the CTA (like "Schedule Your" or "Don't Wait")
+- cta_line2: big bold CTA text (like "FREE INSPECTION" or "CALL NOW"). If CTA bar variations are listed above, split on "|" — left side is line1, right side is line2.
+- badge_label: optional top badge text (like "SEASONAL ALERT" or "LIMITED TIME OFFER"). Only use when it adds urgency. Set to "" if not needed.
+- eyebrow: optional small text above headline (like "HOW WE WORK" or "DID YOU KNOW"). Set to "" if not needed.
 - template: MUST be "${template}"
-- Be SPECIFIC to this business. Reference actual services, areas, industry.
-- Content must feel written by someone at this company.
-- This is 1 of 12 posts in a batch. Make it UNIQUE.
 
-TEMPLATE CONTEXT:
-- "bold_statement" — strong opinion/declaration on solid color. Headline is hero.
-- "photo_feature" — headline overlays photo with gradient. Write for visual impact.
-- "tip_card" — educational content in card. Actionable and useful.
-- "stat_callout" — big number as centerpiece. Headline MUST be a number/stat.
-- "service_spotlight" — split layout highlighting specific service. Concrete.`;
+TEMPLATE-SPECIFIC FIELDS:
+For "photo_hero": Include "stats" array with 2-3 items like [{"value":"20+","label":"Years Experience"}] OR include "items" array with 3-4 trust points like [{"title":"IICRC Certified","subtitle":"Every tech trained"}]
+For "full_graphic": Include "items" array with 4-6 service/feature pills (short strings like "Foundation Repair")
+For "checklist": Include "items" array with 4-6 checklist items (short action strings)
+For "review_showcase": Include "reviews" array with 2-3 items like [{"text":"The review text...","author":"Homeowner"}]. Make reviews sound authentic and specific.
+For "process_steps": Include "items" array with 3-5 step objects like [{"title":"Free Inspection","subtitle":"We assess your foundation — no charge"}]
+For "stat_callout": Include optional "items" array with 2-4 supporting context pills
+
+Be SPECIFIC to this business. Reference actual services, areas, industry.
+This is 1 of 12 posts in a batch. Make it UNIQUE.
+
+TEMPLATE DESCRIPTIONS:
+- "photo_hero" — photo fills top 55%, headline overlays the bottom of the photo, content zone below with stats or trust items
+- "full_graphic" — no photo, gradient background, big centered headline, service pills below
+- "checklist" — dark background, headline at top, vertical checklist with checkmark items
+- "review_showcase" — dark background, rating number hero, 2-3 review cards with star ratings
+- "process_steps" — photo at top (optional), numbered steps below on white background
+- "stat_callout" — dark gradient with radial glow, massive stat number as hero, supporting text below`;
 }
 
 function buildFeedbackBlock(items) {
