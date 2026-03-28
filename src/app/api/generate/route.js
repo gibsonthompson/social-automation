@@ -5,13 +5,9 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-/**
- * NODE 3: AI Generation
- * Calls Claude with assembled prompt, parses response, handles retries.
- */
-async function generateOne(business, planItem, feedbackItems = [], retryCount = 0) {
+async function generateOne(business, planItem, feedbackItems = [], photoManifest = [], retryCount = 0) {
   try {
-    const prompt = buildPrompt(business, planItem.category, planItem.template, feedbackItems);
+    const prompt = buildPrompt(business, planItem.category, planItem.template, feedbackItems, photoManifest);
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -27,81 +23,68 @@ async function generateOne(business, planItem, feedbackItems = [], retryCount = 
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
 
-    // Enforce assigned template and category (AI sometimes ignores)
+    // Enforce assigned template and category
     parsed.template = planItem.template;
     parsed.content_type = planItem.category;
 
-    return { success: true, result: parsed, planItem };
-  } catch (error) {
-    // Retry once on JSON parse failures
-    if (error instanceof SyntaxError && retryCount < 1) {
-      console.warn(`Retry ${planItem.index} (${planItem.category}) — JSON parse failed`);
-      return generateOne(business, planItem, feedbackItems, retryCount + 1);
+    // Validate photo_index if photos exist
+    if (photoManifest.length > 0 && parsed.photo_index !== undefined) {
+      const idx = parseInt(parsed.photo_index);
+      if (isNaN(idx) || idx < -1 || idx >= photoManifest.length) {
+        parsed.photo_index = -1;
+      } else {
+        parsed.photo_index = idx;
+      }
     }
 
+    return { success: true, result: parsed, planItem };
+  } catch (error) {
+    if (error instanceof SyntaxError && retryCount < 1) {
+      return generateOne(business, planItem, feedbackItems, photoManifest, retryCount + 1);
+    }
     console.error(`Failed ${planItem.index} (${planItem.category}):`, error.message);
-    return {
-      success: false,
-      error: error.message || 'Generation failed',
-      planItem,
-    };
+    return { success: false, error: error.message || 'Generation failed', planItem };
   }
 }
 
 export async function POST(request) {
   try {
-    const { business, mode, feedback } = await request.json();
+    const { business, mode, feedback, photoManifest } = await request.json();
 
     if (!business || !business.name) {
       return Response.json({ error: 'Business data is required' }, { status: 400 });
     }
 
     const feedbackItems = feedback || [];
+    const photos = photoManifest || [];
 
-    // Single mode — one post for quick testing
     if (mode === 'single') {
       const plan = buildBatchPlan(business);
-      const result = await generateOne(business, plan[0], feedbackItems);
+      const result = await generateOne(business, plan[0], feedbackItems, photos);
       if (result.success) {
-        return Response.json({
-          results: [result],
-          summary: { total: 1, success: 1, failed: 0 },
-        });
+        return Response.json({ results: [result], summary: { total: 1, success: 1, failed: 0 } });
       }
       return Response.json({ error: result.error }, { status: 500 });
     }
 
-    // Batch mode — 12 parallel calls
+    // Batch mode
     const plan = buildBatchPlan(business);
-    const promises = plan.map((item) => generateOne(business, item, feedbackItems));
+    const promises = plan.map((item) => generateOne(business, item, feedbackItems, photos));
     const outcomes = await Promise.allSettled(promises);
 
     const results = outcomes.map((outcome, idx) => {
-      if (outcome.status === 'fulfilled') {
-        return outcome.value;
-      }
-      return {
-        success: false,
-        error: outcome.reason?.message || 'Request failed',
-        planItem: plan[idx],
-      };
+      if (outcome.status === 'fulfilled') return outcome.value;
+      return { success: false, error: outcome.reason?.message || 'Request failed', planItem: plan[idx] };
     });
 
     const successCount = results.filter((r) => r.success).length;
 
     return Response.json({
       results,
-      summary: {
-        total: 12,
-        success: successCount,
-        failed: 12 - successCount,
-      },
+      summary: { total: 12, success: successCount, failed: 12 - successCount },
     });
   } catch (error) {
     console.error('Batch generate error:', error);
-    return Response.json(
-      { error: error.message || 'Batch generation failed' },
-      { status: 500 }
-    );
+    return Response.json({ error: error.message || 'Batch generation failed' }, { status: 500 });
   }
 }

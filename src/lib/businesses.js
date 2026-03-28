@@ -1,3 +1,49 @@
+/**
+ * Business profiles with per-business design systems.
+ *
+ * design_system: Controls how images are rendered for this business.
+ * Fonts, gradients, layout zones, CTA format, trust badges, style notes.
+ *
+ * photo_manifest is stored separately in the Photo Bank (localStorage).
+ * The design_system lives on the business profile.
+ */
+
+export const EMPTY_DESIGN_SYSTEM = {
+  fonts: {
+    headline: { family: '', weight: '700', transform: 'uppercase', letter_spacing: '2px', size_range: '80-116px' },
+    body: { family: '', weight: '700', transform: 'uppercase', letter_spacing: '1px', size_range: '20-26px' },
+  },
+  colors_extended: {
+    urgency: '',
+    urgency_dark: '',
+    accent_light: '',
+    text_on_light: '#555555',
+    border: '#e8edf2',
+  },
+  gradients: {
+    header: '',
+    accent: '',
+    cta: '',
+    photo_overlay: '',
+  },
+  cta_bar: {
+    enabled: true,
+    phone: '',
+    bg_gradient: '',
+    cta_variations: [],
+  },
+  trust_badges: [],
+  post_types: [
+    { id: 'photo_hero', name: 'Photo Hero + Content', enabled: true },
+    { id: 'full_graphic', name: 'Full Graphic', enabled: true },
+    { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+    { id: 'tip_card', name: 'Tip Card', enabled: true },
+    { id: 'before_after', name: 'Before/After', enabled: false },
+    { id: 'service_spotlight', name: 'Service Spotlight', enabled: true },
+  ],
+  style_notes: '',
+};
+
 export const DEFAULT_BUSINESSES = [
   {
     id: 'rsa',
@@ -6,20 +52,64 @@ export const DEFAULT_BUSINESSES = [
     website: 'waterhelpme.com',
     industry: 'home_service',
     industry_label: 'Foundation Repair & Waterproofing',
-    tagline: '',
+    tagline: 'Waterproofing & Foundation Experts',
     primary_color: '#273373',
     secondary_color: '#2692CC',
     accent_color: '#84D2F2',
     bg_color: '#0C1224',
     text_color: '#FFFFFF',
-    tone: 'Authoritative and trustworthy. Speak like a seasoned expert who genuinely cares about protecting homes. Not salesy, not desperate. Calm confidence. The kind of contractor homeowners trust with their biggest investment. Reference Atlanta-specific things like red clay soil, heavy spring rain, older homes in Decatur and Marietta.',
+    tone: 'Authoritative and trustworthy. Speak like a seasoned expert who genuinely cares about protecting homes. Not salesy, not desperate. Calm confidence. The kind of contractor homeowners trust with their biggest investment. Reference Atlanta-specific things like red clay soil, heavy spring rain, older homes in Decatur and Marietta. Professional-contractor-meets-direct-response. Bold enough to stop a scroll, professional enough to trust with your home, direct enough to drive action, local enough to feel like your neighbor.',
     icp: 'Homeowners in metro Atlanta experiencing water intrusion, foundation cracks, or crawl space issues. Age 35-65, value quality and warranties over lowest price. Often found the problem during a home inspection or noticed water in their basement after heavy rain.',
-    services: 'Foundation Repair, Basement Waterproofing, Crawl Space Encapsulation, French Drains, Sump Pumps, Crack Injection',
+    services: 'Foundation Repair, Basement Waterproofing, Crawl Space Encapsulation, French Drains, Sump Pumps, Crack Injection, Mold Remediation, Drainage Solutions, Commercial Waterproofing',
     service_areas: 'Atlanta, Marietta, Decatur, Roswell, Alpharetta, Johns Creek, Kennesaw',
-    certifications: '',
-    cta_phrases: 'Schedule Your Free Inspection, Protect Your Home Today, Call For a Free Estimate',
-    fact_sheet: '',
+    certifications: 'BBB A+ Rated, IICRC Certified, Google 5.0 Stars',
+    cta_phrases: 'Schedule Your Free Inspection, Call For a Free Estimate, Protect Your Home Today',
+    fact_sheet: 'Real crew photos in branded blue shirts. Red clay soil jobs. Phone number 770-895-2039 visible on crew shirts. GreenSky 0% financing available. Work year-round including winter. Serve both residential and commercial.',
     banned_words: '',
+    design_system: {
+      fonts: {
+        headline: { family: 'Bebas Neue', weight: '400', transform: 'uppercase', letter_spacing: '2px', size_range: '80-116px' },
+        body: { family: 'Montserrat', weight: '700', transform: 'uppercase', letter_spacing: '1px', size_range: '20-26px' },
+      },
+      colors_extended: {
+        urgency: '#C62828',
+        urgency_dark: '#B71C1C',
+        accent_light: '#84D2F2',
+        text_on_light: '#555555',
+        border: '#e8edf2',
+      },
+      gradients: {
+        header: 'linear-gradient(160deg, #1a2a6c, #273373)',
+        accent: 'linear-gradient(90deg, #84d2f2, #115997, #273373)',
+        cta: 'linear-gradient(135deg, #C62828, #B71C1C)',
+        photo_overlay: 'linear-gradient(0deg, rgba(39,51,115,1) 0%, rgba(39,51,115,0) 100%)',
+      },
+      cta_bar: {
+        enabled: true,
+        phone: '770-895-2039',
+        bg_gradient: 'linear-gradient(135deg, #C62828, #B71C1C)',
+        cta_variations: [
+          'Call Today For Your | FREE ESTIMATE!',
+          'Schedule Your | FREE INSPECTION',
+          'Free Foundation Inspection | CALL TODAY',
+          "Don't Wait For The Storm | CALL NOW",
+          'Work With The Best | FREE INSPECTION',
+          'Start With Step 1 | FREE INSPECTION',
+          'Ask About Financing | FREE ESTIMATE!',
+          'See Why Homeowners Trust Us | FREE ESTIMATE',
+        ],
+      },
+      trust_badges: ['BBB A+', 'IICRC Certified', 'Google 5.0 Stars'],
+      post_types: [
+        { id: 'photo_hero', name: 'Photo Hero + Content Below', enabled: true },
+        { id: 'full_graphic', name: 'Full Graphic (no photo)', enabled: true },
+        { id: 'before_after', name: 'Before/After Split', enabled: true },
+        { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+        { id: 'tip_card', name: 'Tip Card / List', enabled: true },
+        { id: 'service_spotlight', name: 'Service Spotlight', enabled: true },
+      ],
+      style_notes: 'Three-zone layout: Visual zone (40-58%) → Content zone (flex:1) → CTA bar (fixed bottom). Red is ONLY for urgency — CTA bars, offers, warnings. Light blue #84d2f2 is the accent on dark backgrounds. Navy is the authority color. Gradients go #1a2a6c → #273373. Every post has a red CTA bar at the bottom with phone number. Logo appears as circle badge on photos or brand strip at top. Numbered lists use blue gradient circles with Bebas Neue numbers. Service items use navy uppercase with blue dots. Not emoji-heavy. Not stock photo dependent. Not overly designed or agency looking. Real crew photos, big bold headlines, always a phone number and CTA.',
+    },
   },
   {
     id: 'vac',
@@ -42,6 +132,24 @@ export const DEFAULT_BUSINESSES = [
     cta_phrases: 'Start Your Free Trial, See It In Action, Book a Demo',
     fact_sheet: '',
     banned_words: 'revolutionary, cutting-edge, game-changer, disrupt',
+    design_system: {
+      fonts: {
+        headline: { family: '', weight: '700', transform: 'uppercase', letter_spacing: '2px', size_range: '72-100px' },
+        body: { family: '', weight: '500', transform: 'none', letter_spacing: '0', size_range: '18-24px' },
+      },
+      colors_extended: { urgency: '', urgency_dark: '', accent_light: '#FFFFFF', text_on_light: '#333333', border: '#222222' },
+      gradients: { header: '', accent: '', cta: '', photo_overlay: '' },
+      cta_bar: { enabled: false, phone: '', bg_gradient: '', cta_variations: [] },
+      trust_badges: [],
+      post_types: [
+        { id: 'photo_hero', name: 'Photo Hero', enabled: false },
+        { id: 'full_graphic', name: 'Full Graphic', enabled: true },
+        { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+        { id: 'tip_card', name: 'Tip Card', enabled: true },
+        { id: 'service_spotlight', name: 'Service Spotlight', enabled: true },
+      ],
+      style_notes: 'Monochrome. Black backgrounds, white text. No color accents. Premium, minimal, founder-to-founder. Dashboard screenshots can be used as visual elements. Clean sans-serif typography. No badges or trust signals — the brand speaks through results and capability.',
+    },
   },
   {
     id: 'cb',
@@ -50,7 +158,7 @@ export const DEFAULT_BUSINESSES = [
     website: 'callbirdai.com',
     industry: 'saas_smb',
     industry_label: 'AI Receptionist SaaS',
-    tagline: '',
+    tagline: 'Never Miss Another Call',
     primary_color: '#122092',
     secondary_color: '#1E3ABF',
     accent_color: '#F6B828',
@@ -64,6 +172,23 @@ export const DEFAULT_BUSINESSES = [
     cta_phrases: 'Never Miss Another Call, Try Free For 14 Days, See How It Works',
     fact_sheet: '',
     banned_words: '',
+    design_system: {
+      fonts: {
+        headline: { family: '', weight: '800', transform: 'uppercase', letter_spacing: '1px', size_range: '72-100px' },
+        body: { family: '', weight: '600', transform: 'none', letter_spacing: '0', size_range: '20-26px' },
+      },
+      colors_extended: { urgency: '#F6B828', urgency_dark: '#D4A020', accent_light: '#F6B828', text_on_light: '#122092', border: '#1E3ABF' },
+      gradients: { header: 'linear-gradient(160deg, #0A0E2A, #122092)', accent: '', cta: 'linear-gradient(135deg, #F6B828, #D4A020)', photo_overlay: '' },
+      cta_bar: { enabled: true, phone: '', bg_gradient: 'linear-gradient(135deg, #F6B828, #D4A020)', cta_variations: ['Never Miss Another Call', 'Try Free For 14 Days', 'See How It Works', 'Your AI Receptionist Awaits'] },
+      trust_badges: [],
+      post_types: [
+        { id: 'full_graphic', name: 'Full Graphic', enabled: true },
+        { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+        { id: 'tip_card', name: 'Tip Card', enabled: true },
+        { id: 'service_spotlight', name: 'Service Spotlight', enabled: true },
+      ],
+      style_notes: 'Deep navy with gold accents. The blue jay mascot can appear as a small badge or watermark. Bold headlines. Industry-specific scenarios (plumber, dentist, lawyer, salon). The gold accent color is used for CTAs and emphasis — not for backgrounds. Navy is the dominant color.',
+    },
   },
   {
     id: 'rs',
@@ -86,6 +211,22 @@ export const DEFAULT_BUSINESSES = [
     cta_phrases: "Let's Build Something, Get Started Today, Schedule a Call",
     fact_sheet: '',
     banned_words: '',
+    design_system: {
+      fonts: {
+        headline: { family: '', weight: '800', transform: 'none', letter_spacing: '0', size_range: '68-96px' },
+        body: { family: '', weight: '500', transform: 'none', letter_spacing: '0', size_range: '18-24px' },
+      },
+      colors_extended: { urgency: '#FA8820', urgency_dark: '#E06D10', accent_light: '#FBBF24', text_on_light: '#1A0E04', border: '#2A1A08' },
+      gradients: { header: 'linear-gradient(160deg, #1A0E04, #2A1A08)', accent: '', cta: 'linear-gradient(135deg, #FA8820, #E06D10)', photo_overlay: '' },
+      cta_bar: { enabled: false, phone: '', bg_gradient: '', cta_variations: [] },
+      trust_badges: [],
+      post_types: [
+        { id: 'full_graphic', name: 'Full Graphic', enabled: true },
+        { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+        { id: 'tip_card', name: 'Tip Card', enabled: true },
+      ],
+      style_notes: 'Dark backgrounds with orange energy. Code snippets and tech visuals. Screenshots of shipped work. Bold claims backed by results. No stock photos. Developer aesthetic — clean, dark, functional.',
+    },
   },
   {
     id: 'gtc',
@@ -108,5 +249,22 @@ export const DEFAULT_BUSINESSES = [
     cta_phrases: 'Book a Discovery Call, Claim Your Free Assessment, See How We Help',
     fact_sheet: 'Founded by former brokerage professionals. Team has collectively managed over $500 million in freight. $3-8K average savings per truck per year. 35+ carriers in network. 1-week ROI guarantee or money back. 15-25% revenue increase typical from cutting out load board middlemen. Contact: J. Brewer, jbrewer@gtcadvisers.com, (770) 533-2544.',
     banned_words: '',
+    design_system: {
+      fonts: {
+        headline: { family: '', weight: '700', transform: 'uppercase', letter_spacing: '2px', size_range: '72-100px' },
+        body: { family: '', weight: '500', transform: 'none', letter_spacing: '0', size_range: '18-24px' },
+      },
+      colors_extended: { urgency: '#C9A227', urgency_dark: '#A88820', accent_light: '#D4B44A', text_on_light: '#0A0F1C', border: '#1A2744' },
+      gradients: { header: 'linear-gradient(160deg, #0A0F1C, #1A2744)', accent: 'linear-gradient(90deg, #C9A227, #D4B44A)', cta: 'linear-gradient(135deg, #C9A227, #A88820)', photo_overlay: 'linear-gradient(0deg, rgba(10,15,28,0.95) 0%, rgba(10,15,28,0) 100%)' },
+      cta_bar: { enabled: true, phone: '(770) 533-2544', bg_gradient: 'linear-gradient(135deg, #C9A227, #A88820)', cta_variations: ['Book Your Free Assessment', 'See Your Savings', 'Claim Your Free Assessment', 'Stop Overpaying', 'Join 35+ Carriers'] },
+      trust_badges: ['$500M+ Managed', '1-Week ROI Guarantee', '35+ Carrier Network'],
+      post_types: [
+        { id: 'full_graphic', name: 'Full Graphic', enabled: true },
+        { id: 'stat_callout', name: 'Stat Callout', enabled: true },
+        { id: 'tip_card', name: 'Tip Card', enabled: true },
+        { id: 'service_spotlight', name: 'Service Spotlight', enabled: true },
+      ],
+      style_notes: 'Gold on black/dark navy. Premium luxury feel. Serif or elegant sans-serif for headlines. Think financial advisory meets trucking industry. Hard numbers everywhere — dollar amounts, percentages, truck counts. No stock trucking photos unless they look premium. The gold globe logo reinforces authority. Every post should feel like it came from a firm that manages $500M in freight.',
+    },
   },
 ];
