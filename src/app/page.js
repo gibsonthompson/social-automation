@@ -113,7 +113,7 @@ function GenPage({biz, addLib}) {
   const renderAllServer = async(items, bizData, photos)=>{
     setRendering(true); setRenderProgress(0);
     const upd=[...items];
-    const renderUrl = 'https://urchin-app-bqb4i.ondigitalocean.app/api/content-render';
+    const renderUrl = process.env.NEXT_PUBLIC_RENDER_URL || '/api/render';
     const renderKey = process.env.NEXT_PUBLIC_RENDER_KEY || '';
 
     for(let i=0;i<upd.length;i++){
@@ -124,7 +124,7 @@ function GenPage({biz, addLib}) {
       const pidx = item.result.photo_index;
       if(pidx>=0 && photos[pidx]) {
         photoDataUrl = photos[pidx].data;
-      } else if((item.result.template==='photo_hero'||item.result.template==='process_steps')&&photos.length>0){
+      } else if(['photo_hero','process_steps','did_you_know','split_feature'].includes(item.result.template)&&photos.length>0){
         photoDataUrl = photos[i%photos.length].data;
       }
 
@@ -281,7 +281,7 @@ function BatchCard({item,idx,onToggle,onDownload,onFeedback}){
   );
 
   const r=item.result;
-  const tc={bold_statement:'var(--gold)',photo_feature:'var(--blue)',tip_card:'var(--green)',stat_callout:'var(--purple)',service_spotlight:'var(--red)'};
+  const tc={photo_hero:'var(--blue)',full_graphic:'var(--gold)',checklist:'var(--green)',review_showcase:'var(--purple)',process_steps:'var(--blue)',stat_callout:'var(--purple)',service_highlight:'var(--green)',offer_coupon:'var(--red)',warning_signs:'var(--red)',did_you_know:'var(--gold)',brand_intro:'var(--blue)',split_feature:'var(--green)'};
 
   const cp=()=>{navigator.clipboard.writeText((r.caption||'')+'\n\n'+(r.hashtags||[]).map(h=>'#'+h).join(' ')).then(()=>{setCpd(true);setTimeout(()=>setCpd(false),2000);});};
   const submit=(rating)=>{onFeedback(rating,fbText.trim());setFbMode(null);setFbText('');};

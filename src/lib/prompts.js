@@ -42,15 +42,18 @@ const CONTENT_CATEGORIES = {
 };
 
 const TEMPLATE_DISTRIBUTION = [
-  'photo_hero', 'photo_hero',
-  'full_graphic', 'full_graphic',
+  'photo_hero',
+  'full_graphic',
   'checklist',
-  'stat_callout', 'stat_callout',
+  'stat_callout',
   'process_steps',
   'review_showcase',
   'service_highlight',
   'offer_coupon',
-  'photo_hero',
+  'warning_signs',
+  'did_you_know',
+  'brand_intro',
+  'split_feature',
 ];
 
 const STAT_FRIENDLY = [
@@ -79,10 +82,10 @@ export function buildBatchPlan(business) {
 
   return shuffledPlan.map((category, idx) => {
     let template = shuffledTpls[idx];
-    if (template === 'stat_callout' && !STAT_FRIENDLY.includes(category)) template = 'bold_statement';
+    if (template === 'stat_callout' && !STAT_FRIENDLY.includes(category)) template = 'full_graphic';
     if (STAT_FRIENDLY.includes(category) && template !== 'stat_callout') {
       const used = shuffledPlan.slice(0, idx).filter((_, i) => shuffledTpls[i] === 'stat_callout').length;
-      if (used < 2) template = 'stat_callout';
+      if (used < 1) template = 'stat_callout';
     }
     return { index: idx, category, template };
   });
@@ -138,11 +141,15 @@ export function buildPrompt(business, category, template, feedbackItems = [], ph
     photo_hero: ',"stats":[{"value":"...","label":"..."}],"items":[]',
     full_graphic: ',"items":["service1","service2"]',
     checklist: ',"items":["check item 1","check item 2"]',
-    review_showcase: ',"reviews":[{"text":"...","author":"Homeowner"}]',
+    review_showcase: ',"reviews":[{"text":"...","author":"Name, City"}]',
     process_steps: ',"items":[{"title":"Step Name","subtitle":"Description"}]',
     stat_callout: ',"items":["context pill 1"]',
     service_highlight: ',"items":["feature 1","feature 2"]',
     offer_coupon: ',"items":["service1","service2"]',
+    warning_signs: ',"items":[{"title":"Warning sign","subtitle":"Why it matters"}]',
+    did_you_know: ',"items":["related service 1"]',
+    brand_intro: ',"items":["service1","service2"],"stats":[{"value":"20+","label":"Years"}]',
+    split_feature: ',"items":[{"title":"Feature","subtitle":"Description"}]',
   };
   const extraFields = templateFields[template] || '';
 
@@ -237,25 +244,33 @@ function buildRulesBlock(category, template) {
 TEMPLATE-SPECIFIC FIELDS:
 For "photo_hero": Include "stats" array with 2-3 items like [{"value":"20+","label":"Years Experience"}] OR include "items" array with 3-4 trust points like [{"title":"IICRC Certified","subtitle":"Every tech trained"}]
 For "full_graphic": Include "items" array with 4-6 service/feature pills (short strings like "Foundation Repair")
-For "checklist": Include "items" array with 4-6 checklist items (short action strings)
-For "review_showcase": Include "reviews" array with 2-3 items like [{"text":"The review text...","author":"Homeowner"}]. Make reviews sound authentic and specific to the local area.
+For "checklist": Include "items" array with 4-6 checklist items (short action strings). Set "badge_label" to urgency text if seasonal.
+For "review_showcase": Include "reviews" array with 2-3 items like [{"text":"The review text...","author":"Sarah M., Marietta"}]. Make reviews authentic with specific local details.
 For "process_steps": Include "items" array with 3-5 step objects like [{"title":"Free Inspection","subtitle":"We assess your foundation — no charge"}]
 For "stat_callout": Include optional "items" array with 2-4 supporting context pills
 For "service_highlight": Include "items" array with 4-6 service features as dot-list items. Set "eyebrow" to a short category label.
-For "offer_coupon": Include "items" array with 4-6 service pills. Set "badge_label" to urgency text like "LIMITED TIME OFFER". Headline should be the offer amount like "$500 OFF".
+For "offer_coupon": Include "items" array with 4-6 service pills. Set "badge_label" to urgency text like "LIMITED TIME OFFER". Headline should be the offer like "$500 OFF".
+For "warning_signs": Include "items" array with 4-6 warning sign objects like [{"title":"Cracks in walls","subtitle":"Horizontal cracks mean lateral pressure"}]. These are numbered automatically.
+For "did_you_know": Include "items" array with 3-4 relevant service pills. Headline should be a surprising fact. Subtext explains it.
+For "brand_intro": Include "items" array with 6-8 service names AND "stats" array with 3 company stats like [{"value":"20+","label":"Years"}]
+For "split_feature": Include "items" array with 3-5 feature objects like [{"title":"Feature Name","subtitle":"Description"}]. Icons are auto-assigned.
 
 Be SPECIFIC to this business. Reference actual services, areas, industry.
-This is 1 of 12 posts in a batch. Make it UNIQUE.
+This is 1 of 12 posts in a batch. Make it UNIQUE — every post must have different content.
 
 TEMPLATE DESCRIPTIONS:
-- "photo_hero" — photo fills top 55%, headline overlays the bottom of the photo, content zone below with stats or trust items
-- "full_graphic" — no photo, gradient background, big centered headline, service pills below
-- "checklist" — dark background, headline at top, vertical checklist with checkmark items
-- "review_showcase" — dark background, rating number hero, 2-3 review cards with star ratings
-- "process_steps" — photo at top (optional), numbered steps below on white background
-- "stat_callout" — dark gradient with radial glow, massive stat number as hero, supporting text below
-- "service_highlight" — gradient accent bar at top, logo, service-focused headline, dot-list of features
-- "offer_coupon" — red urgency banner at top, dashed coupon border around big offer headline, service pills`;
+- "photo_hero" — photo fills top half, headline overlays gradient fade, stats or trust icons below
+- "full_graphic" — gradient background, logo, big centered headline, service pills
+- "checklist" — dark bg, brand bar, headline, vertical checklist with accent checkmarks
+- "review_showcase" — brand bar, Google rating, 2-3 review cards on dark cards
+- "process_steps" — photo with white fade, numbered gradient steps on white
+- "stat_callout" — dark gradient with radial glow, massive stat number, supporting text
+- "service_highlight" — gradient accent bar, logo, service headline, dot-list features
+- "offer_coupon" — red urgency banner, dashed coupon border, big offer amount, service pills
+- "warning_signs" — brand bar, alert icon, numbered danger list with red accents and left border
+- "did_you_know" — gradient header, surprising fact headline, educational explanation
+- "brand_intro" — full gradient bar, logo, company headline, service grid, stat row
+- "split_feature" — two-tone split, headline on dark left side, feature list with icons on white right`;
 }
 
 function buildFeedbackBlock(items) {
