@@ -1,68 +1,83 @@
 /**
- * Content Farm Prompt System
+ * Content Farm — Prompt System
  *
- * Each industry type gets a fundamentally different prompt strategy.
- * This isn't just tone swapping — the content angles, hooks, proof structures,
- * and CTA psychology are all different per business type.
+ * NODE 1: Strategy (buildBatchPlan)
+ *   Decides WHAT to create — categories, templates, distribution
+ *
+ * NODE 2: Prompt Assembly (buildPrompt)
+ *   Builds the AI prompt — industry context, constraints, feedback learning
+ *
+ * Each industry gets fundamentally different prompt architecture.
+ * Feedback from past generations is injected to improve over time.
  */
+
+// ═══════════════════════════════════════════════════════════════════
+// NODE 1: CONTENT STRATEGY
+// ═══════════════════════════════════════════════════════════════════
 
 const CONTENT_CATEGORIES = {
   home_service: [
-    'seasonal_warning',    // "Spring rain is coming — is your basement ready?"
-    'problem_awareness',   // "3 signs your foundation is settling"
-    'before_after',        // Transformation showcase
-    'myth_bust',           // "You DON'T need to waterproof from the outside"
-    'homeowner_tip',       // Actionable advice that builds trust
-    'social_proof',        // Project story / customer win
-    'urgency_stat',        // "67% of Atlanta homes have some foundation movement"
-    'process_education',   // "Here's what happens during a crawl space encapsulation"
+    'seasonal_warning',
+    'problem_awareness',
+    'before_after',
+    'myth_bust',
+    'homeowner_tip',
+    'social_proof',
+    'urgency_stat',
+    'process_education',
   ],
   saas_tech: [
-    'revenue_hook',        // "Your agencies are leaving $3K/mo on the table"
-    'competitor_gap',      // "What your clients get that GoHighLevel can't do"
-    'case_study',          // Agency success story
-    'feature_spotlight',   // Specific platform capability
-    'industry_trend',      // AI/voice/automation trend that validates the product
-    'objection_killer',    // "But my clients already have a receptionist..."
-    'founder_insight',     // Behind-the-scenes on building the platform
-    'roi_math',            // Hard numbers on what agencies earn
+    'revenue_hook',
+    'competitor_gap',
+    'case_study',
+    'feature_spotlight',
+    'industry_trend',
+    'objection_killer',
+    'founder_insight',
+    'roi_math',
   ],
   saas_smb: [
-    'missed_call_pain',    // "That call you missed at 5:02 PM was worth $800"
-    'simplicity_hook',     // "Set up in 10 minutes. Never miss a call again."
-    'industry_specific',   // Content for a specific vertical (plumber, dentist, etc.)
-    'comparison',          // "Hiring vs. AI receptionist — the real cost breakdown"
-    'testimonial_style',   // Written as if sharing a customer story
-    'quick_tip',           // "3 things to do before you leave the office today"
-    'weekend_angle',       // "Your phone rings on Saturday. Who answers?"
-    'stat_shock',          // "78% of customers call the next business if you don't pick up"
+    'missed_call_pain',
+    'simplicity_hook',
+    'industry_specific',
+    'comparison',
+    'testimonial_style',
+    'quick_tip',
+    'weekend_angle',
+    'stat_shock',
   ],
   agency_dev: [
-    'build_showcase',      // Recent project or capability flex
-    'tech_opinion',        // Hot take on a web trend
-    'speed_proof',         // "We shipped this in 2 weeks"
-    'client_win',          // Results from a real engagement
-    'dev_tip',             // Useful insight that shows expertise
-    'why_us',              // Direct pitch on what makes you different
-    'problem_reframe',     // "You don't need a redesign. You need a strategy."
-    'behind_build',        // Technical decision-making stories
+    'build_showcase',
+    'tech_opinion',
+    'speed_proof',
+    'client_win',
+    'dev_tip',
+    'why_us',
+    'problem_reframe',
+    'behind_build',
   ],
   consulting: [
-    'growth_framework',    // Teach a mental model
-    'bottleneck_diagnosis',// "Why you're stuck at $1M"
-    'systems_thinking',    // Process > hustle messaging
-    'leadership_insight',  // Operational wisdom
-    'case_pattern',        // "Every business I've seen plateau does this one thing"
-    'metric_spotlight',    // Key number business owners should track
-    'contrarian_take',     // Challenge conventional small biz advice
-    'action_step',         // One concrete thing to implement today
+    'growth_framework',
+    'bottleneck_diagnosis',
+    'systems_thinking',
+    'leadership_insight',
+    'case_pattern',
+    'metric_spotlight',
+    'contrarian_take',
+    'action_step',
+  ],
+  logistics_advisory: [
+    'cost_savings',
+    'carrier_pain',
+    'insurance_insight',
+    'fuel_strategy',
+    'lane_optimization',
+    'broker_vs_direct',
+    'fleet_scaling',
+    'industry_data',
   ],
 };
 
-/**
- * Template distribution for a 12-post batch.
- * Enforces visual variety in every batch.
- */
 const TEMPLATE_DISTRIBUTION = [
   'bold_statement',
   'bold_statement',
@@ -78,70 +93,83 @@ const TEMPLATE_DISTRIBUTION = [
   'service_spotlight',
 ];
 
+const STAT_FRIENDLY_CATEGORIES = [
+  'urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight',
+  'revenue_hook', 'cost_savings', 'industry_data', 'fuel_strategy',
+];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 /**
- * Build a 12-item batch plan for a business.
- * Each item gets a unique content category and an assigned template.
- * All 8 categories are used, plus 4 repeats of high-value types.
+ * NODE 1: Build a 12-item batch plan.
+ * Uses all 8 categories + 4 repeats. Enforces template distribution.
+ * Matches stat-friendly categories to stat_callout templates.
  */
 export function buildBatchPlan(business) {
   const industry = business.industry || 'consulting';
   const categories = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
 
-  // Start with all 8 unique categories
+  // All 8 unique + 4 repeats from top
   const plan = [...categories];
-
-  // Add 4 more by cycling from the top (highest-priority categories)
   for (let i = 0; plan.length < 12; i++) {
     plan.push(categories[i % categories.length]);
   }
 
-  // Shuffle the plan so order is unpredictable
-  for (let i = plan.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [plan[i], plan[j]] = [plan[j], plan[i]];
-  }
+  const shuffledPlan = shuffle(plan);
+  const shuffledTemplates = shuffle(TEMPLATE_DISTRIBUTION);
 
-  // Shuffle template distribution too
-  const templates = [...TEMPLATE_DISTRIBUTION];
-  for (let i = templates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [templates[i], templates[j]] = [templates[j], templates[i]];
-  }
+  return shuffledPlan.map((category, idx) => {
+    let template = shuffledTemplates[idx];
 
-  // Pair categories with templates, but enforce stat_callout only with stat-friendly categories
-  const statCategories = ['urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight', 'revenue_hook'];
-
-  return plan.map((category, idx) => {
-    let template = templates[idx];
-    // If template is stat_callout but category isn't stat-friendly, swap to bold_statement
-    if (template === 'stat_callout' && !statCategories.includes(category)) {
+    // Enforce: stat_callout only with stat-friendly categories
+    if (template === 'stat_callout' && !STAT_FRIENDLY_CATEGORIES.includes(category)) {
       template = 'bold_statement';
     }
-    // If category IS stat-friendly and template isn't stat_callout, consider forcing it
-    if (statCategories.includes(category) && template !== 'stat_callout') {
-      // Only force if we haven't used too many stat_callouts already
-      const statCount = plan.slice(0, idx).filter((_, i) => templates[i] === 'stat_callout').length;
-      if (statCount < 2) {
-        template = 'stat_callout';
-      }
+    // Enforce: stat-friendly categories should use stat_callout when possible
+    if (STAT_FRIENDLY_CATEGORIES.includes(category) && template !== 'stat_callout') {
+      const usedStats = shuffledPlan.slice(0, idx).filter(
+        (_, i) => shuffledTemplates[i] === 'stat_callout'
+      ).length;
+      if (usedStats < 2) template = 'stat_callout';
     }
+
     return { index: idx, category, template };
   });
 }
 
-/**
- * Build a prompt for a single post with a forced category and template.
- */
-export function buildPrompt(business, forcedCategory, forcedTemplate) {
-  const industry = business.industry || 'consulting';
-  const categories = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
-  const category = forcedCategory || categories[Math.floor(Math.random() * categories.length)];
-  const template = forcedTemplate || 'bold_statement';
 
-  const baseContext = `
+// ═══════════════════════════════════════════════════════════════════
+// NODE 2: PROMPT ASSEMBLY
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * NODE 2: Assemble the full prompt for a single post.
+ *
+ * @param {Object} business - Business profile
+ * @param {string} category - Content category (from batch plan)
+ * @param {string} template - Assigned template (from batch plan)
+ * @param {Array} feedbackItems - Past feedback items for learning
+ */
+export function buildPrompt(business, category, template, feedbackItems = []) {
+  const industry = business.industry || 'consulting';
+  const systemPrompt = INDUSTRY_PROMPTS[industry] || INDUSTRY_PROMPTS.consulting;
+
+  // ── Section 1: Industry role and strategy ──
+  const roleBlock = systemPrompt;
+
+  // ── Section 2: Business context ──
+  const contextBlock = `
 BUSINESS PROFILE:
 Name: ${business.name}
 Industry: ${business.industry_label || business.industry}
+Tagline: ${business.tagline || 'N/A'}
 Services: ${business.services || 'N/A'}
 Target Customer (ICP): ${business.icp || 'N/A'}
 Tone of Voice: ${business.tone || 'Professional and direct'}
@@ -150,40 +178,84 @@ Website: ${business.website || 'N/A'}
 Preferred CTAs: ${business.cta_phrases || 'N/A'}
 Key Facts: ${business.fact_sheet || 'N/A'}
 Certifications: ${business.certifications || 'N/A'}
-Banned Words/Phrases: ${business.banned_words || 'N/A'}
-`.trim();
+Banned Words/Phrases: ${business.banned_words || 'N/A'}`.trim();
 
-  const industryPrompt = INDUSTRY_PROMPTS[industry] || INDUSTRY_PROMPTS.consulting;
-
-  return `${industryPrompt}
-
-${baseContext}
-
+  // ── Section 3: Assignment ──
+  const assignmentBlock = `
 CONTENT CATEGORY FOR THIS POST: ${category}
-ASSIGNED TEMPLATE: ${template}
+ASSIGNED TEMPLATE: ${template}`.trim();
 
-UNIVERSAL RULES:
+  // ── Section 4: Content rules ──
+  const rulesBlock = `
+CONTENT RULES:
 - NEVER use emojis anywhere in any field
-- headline: punchy, max 10 words. For stat_callout template, headline MUST be a compelling number/stat (like "97%" or "2,400+" or "$15K" or "3 in 5")
+- headline: punchy, max 10 words. For stat_callout, headline MUST be a number/stat (like "97%" or "$8K" or "3 in 5")
 - subtext: 1-2 sentences supporting the headline, max 25 words
-- caption: 2-3 short paragraphs, conversational, ends with a clear CTA. Written for social media (Instagram/LinkedIn). No hashtags in the caption itself.
+- caption: 2-3 short paragraphs, conversational, ends with a clear CTA. Written for Instagram/LinkedIn. No hashtags in the caption.
 - hashtags: 5 relevant hashtags (without the # symbol)
 - cta: short call to action text (max 6 words) for the image overlay
-- template: MUST be "${template}" — this is pre-assigned, do not change it
-- Be SPECIFIC to this exact business. Reference their actual services, areas, and industry. Never be generic.
-- Content must feel like it was written by someone who works at this company, not by an AI content mill.
-- This is 1 of 12 posts in a batch. Make this one UNIQUE — do not repeat generic phrases.
+- template: MUST be "${template}" — pre-assigned, do not change
+- Be SPECIFIC to this exact business. Reference actual services, areas, industry.
+- Content must feel written by someone at this company, not an AI.
+- This is 1 of 12 posts in a batch. Make it UNIQUE.`.trim();
 
+  // ── Section 5: Template context ──
+  const templateBlock = `
 TEMPLATE CONTEXT (write content that fits this layout):
-- "bold_statement" — strong opinion or declaration on a solid color background. Headline is the hero.
+- "bold_statement" — strong opinion/declaration on solid color background. Headline is the hero element.
 - "photo_feature" — headline overlays a photo with dark gradient. Write for visual impact.
-- "tip_card" — educational content in a clean white card. Write something actionable and useful.
-- "stat_callout" — a big number/stat is the visual centerpiece. Headline MUST be a number/percentage/stat.
-- "service_spotlight" — split layout highlighting a specific service. Be concrete about what the service solves.
+- "tip_card" — educational content in a white card on dark bg. Actionable and useful.
+- "stat_callout" — big number/stat as visual centerpiece. Headline MUST be a number/percentage/stat.
+- "service_spotlight" — split layout highlighting a specific service. Concrete about what the service solves.`.trim();
 
+  // ── Section 6: Feedback learning (dynamic) ──
+  const feedbackBlock = buildFeedbackBlock(feedbackItems);
+
+  // ── Section 7: Output format ──
+  const outputBlock = `
 Respond with ONLY valid JSON. No markdown. No backticks. No explanation.
-{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"${template}","cta":"..."}`;
+{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"${template}","cta":"..."}`.trim();
+
+  return [roleBlock, contextBlock, assignmentBlock, rulesBlock, templateBlock, feedbackBlock, outputBlock]
+    .filter(Boolean)
+    .join('\n\n');
 }
+
+/**
+ * Build the feedback learning block from past feedback items.
+ * Returns empty string if no feedback exists.
+ */
+function buildFeedbackBlock(feedbackItems) {
+  if (!feedbackItems || feedbackItems.length === 0) return '';
+
+  const approved = feedbackItems.filter((i) => i.rating === 'good');
+  const rejected = feedbackItems.filter((i) => i.rating === 'bad');
+
+  let block = 'LEARNING FROM PAST FEEDBACK — apply these learnings to improve this post:';
+
+  if (approved.length > 0) {
+    block += '\n\nApproved posts (create more like these):';
+    approved.slice(0, 8).forEach((item) => {
+      block += `\n- "${item.headline}" [${item.content_type}]`;
+      if (item.reason) block += ` — "${item.reason}"`;
+    });
+  }
+
+  if (rejected.length > 0) {
+    block += '\n\nRejected posts (avoid these patterns):';
+    rejected.slice(0, 8).forEach((item) => {
+      block += `\n- "${item.headline}" [${item.content_type}]`;
+      if (item.reason) block += ` — "${item.reason}"`;
+    });
+  }
+
+  return block;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// INDUSTRY PROMPT LIBRARY
+// ═══════════════════════════════════════════════════════════════════
 
 const INDUSTRY_PROMPTS = {
   home_service: `You are a content strategist for a LOCAL HOME SERVICE company. You understand that homeowners don't search for "foundation repair" until they have a problem. Your job is to create content that:
@@ -265,4 +337,22 @@ HOOKS THAT WORK FOR CONSULTING:
 - Framework teaching ("The 3-lever model for breaking past $1M")
 - Metric spotlight ("If you don't know this number, you're flying blind")
 - Action steps ("Do this one thing Monday morning and watch what shifts")`,
+
+  logistics_advisory: `You are a content strategist for a LOGISTICS ADVISORY firm that serves INDEPENDENT TRUCKING CARRIERS. Your audience is fleet owners with 1-50 trucks who are overpaying for insurance, fuel, and maintenance while competing against mega-carriers with deeper resources. Your job is to create content that:
+1. Quantifies the financial disadvantage independent carriers face and shows the path out
+2. Demonstrates deep industry knowledge (insurance procurement, lane optimization, fuel programs)
+3. Uses hard numbers — savings per truck, percentage improvements, ROI timelines
+4. Positions the firm as former brokerage insiders who switched sides to help carriers
+5. Makes the complex simple — fleet owners are operators, not finance people
+
+The tone should be authoritative and premium. Gold-on-black brand energy. Speak like someone who has negotiated thousands of carrier contracts and managed $500M+ in freight. Not salesy — consultative. The audience respects competence and results, not promises.
+
+HOOKS THAT WORK FOR LOGISTICS ADVISORY:
+- Cost exposure ("You're paying $3-8K more per truck than you need to on insurance alone")
+- Pooled power ("35+ carriers in our network means you get the same rates as the big fleets")
+- Broker contrast ("Load boards eat 15-25% of your revenue. Direct shipper connections don't.")
+- ROI guarantee ("If we don't deliver ROI in week one, you pay nothing")
+- Operational specifics ("Here's how lane optimization works and why it saves you money")
+- Industry data ("The average independent carrier overpays 22% on insurance vs. fleet rates")
+- Scaling mindset ("Going from 5 trucks to 15 isn't about buying more trucks")`,
 };

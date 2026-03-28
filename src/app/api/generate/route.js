@@ -6,11 +6,12 @@ const client = new Anthropic({
 });
 
 /**
- * Generate a single content piece with retry logic.
+ * NODE 3: AI Generation
+ * Calls Claude with assembled prompt, parses response, handles retries.
  */
-async function generateOne(business, planItem, retryCount = 0) {
+async function generateOne(business, planItem, feedbackItems = [], retryCount = 0) {
   try {
-    const prompt = buildPrompt(business, planItem.category, planItem.template);
+    const prompt = buildPrompt(business, planItem.category, planItem.template, feedbackItems);
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -26,7 +27,7 @@ async function generateOne(business, planItem, retryCount = 0) {
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
 
-    // Enforce assigned template (AI sometimes ignores the instruction)
+    // Enforce assigned template and category (AI sometimes ignores)
     parsed.template = planItem.template;
     parsed.content_type = planItem.category;
 
@@ -34,8 +35,8 @@ async function generateOne(business, planItem, retryCount = 0) {
   } catch (error) {
     // Retry once on JSON parse failures
     if (error instanceof SyntaxError && retryCount < 1) {
-      console.warn(`Retry ${planItem.index} (${planItem.category}) - JSON parse failed`);
-      return generateOne(business, planItem, retryCount + 1);
+      console.warn(`Retry ${planItem.index} (${planItem.category}) — JSON parse failed`);
+      return generateOne(business, planItem, feedbackItems, retryCount + 1);
     }
 
     console.error(`Failed ${planItem.index} (${planItem.category}):`, error.message);
@@ -49,25 +50,30 @@ async function generateOne(business, planItem, retryCount = 0) {
 
 export async function POST(request) {
   try {
-    const { business, mode } = await request.json();
+    const { business, mode, feedback } = await request.json();
 
     if (!business || !business.name) {
       return Response.json({ error: 'Business data is required' }, { status: 400 });
     }
 
+    const feedbackItems = feedback || [];
+
     // Single mode — one post for quick testing
     if (mode === 'single') {
       const plan = buildBatchPlan(business);
-      const result = await generateOne(business, plan[0]);
+      const result = await generateOne(business, plan[0], feedbackItems);
       if (result.success) {
-        return Response.json({ results: [result], summary: { total: 1, success: 1, failed: 0 } });
+        return Response.json({
+          results: [result],
+          summary: { total: 1, success: 1, failed: 0 },
+        });
       }
       return Response.json({ error: result.error }, { status: 500 });
     }
 
     // Batch mode — 12 parallel calls
     const plan = buildBatchPlan(business);
-    const promises = plan.map((item) => generateOne(business, item));
+    const promises = plan.map((item) => generateOne(business, item, feedbackItems));
     const outcomes = await Promise.allSettled(promises);
 
     const results = outcomes.map((outcome, idx) => {
