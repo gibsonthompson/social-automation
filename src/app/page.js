@@ -50,8 +50,9 @@ export default function ContentFarm() {
     }
   }, [library, ready]);
 
-  const addToLibrary = useCallback((item) => {
-    setLibrary((prev) => [item, ...prev]);
+  const addToLibrary = useCallback((items) => {
+    const arr = Array.isArray(items) ? items : [items];
+    setLibrary((prev) => [...arr, ...prev]);
   }, []);
 
   const totalPhotos = Object.values(photos).reduce((a, b) => a + b.length, 0);
@@ -152,394 +153,521 @@ export default function ContentFarm() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// GENERATE PAGE
+// GENERATE PAGE — BATCH MODE (12 posts per generation)
 // ══════════════════════════════════════════════════════════════════════
 function GeneratePage({ businesses, photos, addToLibrary }) {
   const [bizId, setBizId] = useState(businesses[0]?.id || '');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [tpl, setTpl] = useState('bold_statement');
-  const [photoIdx, setPhotoIdx] = useState(-1);
-  const [imgData, setImgData] = useState(null);
+  const [progress, setProgress] = useState({ done: 0, total: 12 });
+  const [batch, setBatch] = useState([]); // array of { success, result, planItem, imageData, selected }
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [allCopied, setAllCopied] = useState(false);
+  const [rendering, setRendering] = useState(false);
   const canvasRef = useRef(null);
 
   const biz = businesses.find((b) => b.id === bizId);
   const bizPhotos = photos[bizId] || [];
 
-  const generate = async () => {
+  // ── Generate batch ──────────────────────────────────────────────
+  const generateBatch = async () => {
     if (!biz) return;
     setLoading(true);
     setError(null);
-    setResult(null);
-    setImgData(null);
+    setBatch([]);
+    setProgress({ done: 0, total: 12 });
 
     try {
       const resp = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business: biz }),
+        body: JSON.stringify({ business: biz, mode: 'batch' }),
       });
 
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
 
-      setResult(data.result);
-      setTpl(data.result.template && TEMPLATES[data.result.template] ? data.result.template : 'bold_statement');
+      const items = (data.results || []).map((r, idx) => ({
+        ...r,
+        imageData: null,
+        selected: r.success,
+        id: `${Date.now()}-${idx}`,
+      }));
+
+      setBatch(items);
+      setProgress({ done: data.summary?.success || 0, total: 12 });
+
+      // Render all successful items to canvas
+      await renderAllImages(items, biz);
     } catch (e) {
-      setError(e.message || 'Generation failed');
+      setError(e.message || 'Batch generation failed');
     }
 
     setLoading(false);
   };
 
-  // Re-render canvas when result, template, or photo changes
-  const renderCanvas = useCallback(async () => {
-    if (!result || !biz || !canvasRef.current) return;
+  // ── Render all images sequentially ──────────────────────────────
+  const renderAllImages = async (items, bizData) => {
+    setRendering(true);
     const canvas = canvasRef.current;
+    if (!canvas) { setRendering(false); return; }
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
 
-    const photo = photoIdx >= 0 && bizPhotos[photoIdx] ? bizPhotos[photoIdx].data : null;
-    const template = TEMPLATES[tpl];
-    if (template) {
-      await template.render(ctx, biz, result, photo);
+    const updated = [...items];
+
+    for (let i = 0; i < updated.length; i++) {
+      const item = updated[i];
+      if (!item.success || !item.result) continue;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Assign a photo for photo_feature and service_spotlight templates
+      let photo = null;
+      if (
+        (item.result.template === 'photo_feature' || item.result.template === 'service_spotlight') &&
+        bizPhotos.length > 0
+      ) {
+        photo = bizPhotos[i % bizPhotos.length].data;
+      }
+
+      const tpl = TEMPLATES[item.result.template];
+      if (tpl) {
+        try {
+          await tpl.render(ctx, bizData, item.result, photo);
+          updated[i] = { ...updated[i], imageData: canvas.toDataURL('image/png') };
+        } catch (e) {
+          console.error(`Render failed for item ${i}:`, e);
+        }
+      }
     }
-    setImgData(canvas.toDataURL('image/png'));
-  }, [result, biz, tpl, photoIdx, bizPhotos]);
 
-  useEffect(() => {
-    renderCanvas();
-  }, [renderCanvas]);
+    setBatch(updated);
+    setRendering(false);
+  };
 
-  const downloadPng = () => {
-    if (!imgData) return;
+  // ── Toggle selection ────────────────────────────────────────────
+  const toggleSelect = (idx) => {
+    setBatch((prev) => prev.map((item, i) => (i === idx ? { ...item, selected: !item.selected } : item)));
+  };
+
+  const selectAll = () => setBatch((prev) => prev.map((item) => ({ ...item, selected: item.success })));
+  const deselectAll = () => setBatch((prev) => prev.map((item) => ({ ...item, selected: false })));
+
+  // ── Download single ─────────────────────────────────────────────
+  const downloadOne = (item, idx) => {
+    if (!item.imageData) return;
     const a = document.createElement('a');
-    a.href = imgData;
-    a.download = `${biz?.slug || 'post'}-${Date.now()}.png`;
+    a.href = item.imageData;
+    a.download = `${biz?.slug || 'post'}-${idx + 1}-${item.result?.content_type || 'post'}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
 
-  const saveToLibrary = () => {
-    if (!result || !imgData || !biz) return;
-    addToLibrary({
-      id: String(Date.now()),
-      biz_id: bizId,
-      biz_name: biz.name,
-      tpl,
-      content: result,
-      image_data: imgData,
-      created: new Date().toISOString(),
+  // ── Download all selected as zip ────────────────────────────────
+  const downloadAllZip = async () => {
+    const selected = batch.filter((item) => item.selected && item.imageData);
+    if (selected.length === 0) return;
+
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+
+    selected.forEach((item, idx) => {
+      const base64 = item.imageData.split(',')[1];
+      const filename = `${biz?.slug || 'post'}-${idx + 1}-${item.result?.content_type || 'post'}.png`;
+      zip.file(filename, base64, { base64: true });
+    });
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${biz?.slug || 'content'}-batch-${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Copy all captions ───────────────────────────────────────────
+  const copyAllCaptions = () => {
+    const selected = batch.filter((item) => item.selected && item.success);
+    if (selected.length === 0) return;
+
+    const text = selected
+      .map((item, idx) => {
+        const r = item.result;
+        return `--- POST ${idx + 1} (${r.content_type}) ---\n\n${r.caption}\n\n${(r.hashtags || []).map((h) => '#' + h).join(' ')}`;
+      })
+      .join('\n\n\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+      setAllCopied(true);
+      setTimeout(() => setAllCopied(false), 2000);
     });
   };
 
-  const copyCaption = () => {
-    if (!result) return;
-    const full =
-      (result.caption || '') +
-      '\n\n' +
-      (result.hashtags || []).map((h) => '#' + h).join(' ');
-    navigator.clipboard.writeText(full).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+  // ── Save selected to library ────────────────────────────────────
+  const saveSelectedToLibrary = () => {
+    const selected = batch.filter((item) => item.selected && item.success && item.imageData);
+    if (selected.length === 0) return;
+
+    const items = selected.map((item) => ({
+      id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 6),
+      biz_id: bizId,
+      biz_name: biz?.name || '',
+      tpl: item.result.template,
+      content: item.result,
+      image_data: item.imageData,
+      created: new Date().toISOString(),
+    }));
+
+    addToLibrary(items);
   };
+
+  const selectedCount = batch.filter((item) => item.selected).length;
+  const successCount = batch.filter((item) => item.success).length;
 
   return (
     <div style={{ padding: 28 }}>
+      {/* Hidden canvas for rendering */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
       <div style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-.02em' }}>Generate Content</h1>
         <p style={{ color: 'var(--tx-muted)', fontSize: 13, marginTop: 4 }}>
-          Select a business, generate AI content, preview the image, and download as PNG.
+          Generates 12 unique posts per batch with varied templates, content types, and angles.
         </p>
       </div>
 
-      {/* Controls */}
+      {/* ── Controls ── */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', marginBottom: 22, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 220 }}>
           <Select
             label="Business"
             value={bizId}
-            onChange={setBizId}
+            onChange={(v) => { setBizId(v); setBatch([]); }}
             options={businesses.map((b) => ({ value: b.id, label: b.name }))}
           />
         </div>
-        <Btn variant="primary" size="lg" onClick={generate} disabled={loading || !biz}>
-          {loading ? 'Generating...' : 'Generate Content'}
+        <Btn variant="primary" size="lg" onClick={generateBatch} disabled={loading || !biz}>
+          {loading ? `Generating... (${progress.done}/12)` : 'Generate 12 Posts'}
         </Btn>
-        {result && (
-          <Btn variant="ghost" onClick={generate} disabled={loading}>
-            <Icon name="refresh" size={14} /> Regenerate
-          </Btn>
-        )}
       </div>
 
-      {/* Error */}
+      {/* ── Error ── */}
       {error && (
-        <div
-          style={{
-            padding: '12px 18px',
-            background: 'rgba(231,74,74,0.08)',
-            border: '1px solid rgba(231,74,74,0.2)',
-            borderRadius: 10,
-            color: 'var(--red)',
-            fontSize: 13,
-            marginBottom: 20,
-          }}
-        >
+        <div style={{
+          padding: '12px 18px',
+          background: 'rgba(231,74,74,0.08)',
+          border: '1px solid rgba(231,74,74,0.2)',
+          borderRadius: 10,
+          color: 'var(--red)',
+          fontSize: 13,
+          marginBottom: 20,
+        }}>
           {error}
         </div>
       )}
 
-      {/* Result */}
-      {result && (
-        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: 22, alignItems: 'start' }}>
-          {/* Left: Preview */}
-          <div>
-            <div
-              style={{
-                background: 'var(--s1)',
-                border: '1px solid var(--bd)',
-                borderRadius: 12,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  padding: '11px 14px',
-                  borderBottom: '1px solid var(--bd)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: 'var(--tx-dim)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '.06em',
-                  }}
-                >
-                  Preview 1080 x 1350
-                </span>
-                <div style={{ display: 'flex', gap: 5 }}>
-                  <Btn size="sm" onClick={downloadPng} disabled={!imgData}>
-                    <Icon name="download" size={13} /> PNG
-                  </Btn>
-                  <Btn size="sm" variant="primary" onClick={saveToLibrary} disabled={!imgData}>
-                    <Icon name="check" size={13} /> Save
-                  </Btn>
-                </div>
-              </div>
-              <div style={{ padding: 10, background: '#000', display: 'flex', justifyContent: 'center' }}>
-                <canvas
-                  ref={canvasRef}
-                  style={{
-                    width: '100%',
-                    maxWidth: 380,
-                    height: 'auto',
-                    aspectRatio: '1080/1350',
-                    borderRadius: 4,
-                    display: 'block',
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Template selector */}
-            <div style={{ marginTop: 12 }}>
-              <FieldLabel text="Template" />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {Object.entries(TEMPLATES).map(([key, t]) => (
-                  <button
-                    key={key}
-                    onClick={() => setTpl(key)}
-                    style={{
-                      padding: '5px 11px',
-                      borderRadius: 6,
-                      border: `1px solid ${tpl === key ? 'var(--gold)' : 'var(--bd)'}`,
-                      background: tpl === key ? 'rgba(201,164,76,0.08)' : 'var(--s1)',
-                      color: tpl === key ? 'var(--gold)' : 'var(--tx-muted)',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Photo selector */}
-            {bizPhotos.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <FieldLabel text={`Photo ${photoIdx >= 0 ? `(${photoIdx + 1}/${bizPhotos.length})` : '(None)'}`} />
-                <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 4 }}>
-                  <button
-                    onClick={() => setPhotoIdx(-1)}
-                    style={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: 6,
-                      border: `2px solid ${photoIdx === -1 ? 'var(--gold)' : 'var(--bd)'}`,
-                      background: 'var(--s1)',
-                      color: 'var(--tx-muted)',
-                      fontSize: 9,
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontFamily: 'inherit',
-                      fontWeight: 600,
-                    }}
-                  >
-                    None
-                  </button>
-                  {bizPhotos.map((p, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setPhotoIdx(i)}
-                      style={{
-                        width: 46,
-                        height: 46,
-                        borderRadius: 6,
-                        border: `2px solid ${photoIdx === i ? 'var(--gold)' : 'var(--bd)'}`,
-                        backgroundImage: `url(${p.data})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                        padding: 0,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+      {/* ── Loading ── */}
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <div style={{
+            width: 36, height: 36,
+            border: '3px solid var(--bd)',
+            borderTop: '3px solid var(--gold)',
+            borderRadius: '50%',
+            animation: 'spin .7s linear infinite',
+            margin: '0 auto 16px',
+          }} />
+          <div style={{ fontSize: 14, color: 'var(--tx-muted)', fontWeight: 500 }}>
+            Generating 12 posts for {biz?.name}...
           </div>
-
-          {/* Right: Content details */}
-          <div>
-            <div
-              style={{
-                background: 'var(--s1)',
-                border: '1px solid var(--bd)',
-                borderRadius: 12,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  padding: '11px 14px',
-                  borderBottom: '1px solid var(--bd)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: 'var(--tx-dim)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '.06em',
-                    }}
-                  >
-                    Content
-                  </span>
-                  <Tag color="var(--blue)">{result.content_type || 'post'}</Tag>
-                </div>
-                <Btn size="sm" onClick={copyCaption}>
-                  <Icon name={copied ? 'check' : 'copy'} size={12} />
-                  {copied ? 'Copied' : 'Copy Caption'}
-                </Btn>
-              </div>
-
-              <div style={{ padding: 20 }}>
-                <div style={{ marginBottom: 18 }}>
-                  <FieldLabel text="Headline" />
-                  <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.3 }}>{result.headline}</div>
-                </div>
-                <div style={{ marginBottom: 18 }}>
-                  <FieldLabel text="Subtext" />
-                  <div style={{ fontSize: 14, color: 'var(--tx-muted)', lineHeight: 1.5 }}>
-                    {result.subtext}
-                  </div>
-                </div>
-                <div style={{ marginBottom: 18 }}>
-                  <FieldLabel text="Caption" />
-                  <div style={{ fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-                    {result.caption}
-                  </div>
-                </div>
-                <div style={{ marginBottom: 18 }}>
-                  <FieldLabel text="Hashtags" />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {(result.hashtags || []).map((h, i) => (
-                      <Tag key={i} color="var(--purple)">
-                        #{h}
-                      </Tag>
-                    ))}
-                  </div>
-                </div>
-                {result.cta && (
-                  <div>
-                    <FieldLabel text="CTA" />
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gold)' }}>{result.cta}</div>
-                  </div>
-                )}
-              </div>
-            </div>
+          <div style={{ fontSize: 12, color: 'var(--tx-dim)', marginTop: 6 }}>
+            Running 12 parallel AI calls. This takes about 10-15 seconds.
           </div>
         </div>
       )}
 
-      {/* Empty state */}
-      {!result && !loading && (
+      {/* ── Rendering indicator ── */}
+      {rendering && !loading && (
+        <div style={{
+          padding: '12px 18px',
+          background: 'rgba(201,164,76,0.08)',
+          border: '1px solid rgba(201,164,76,0.2)',
+          borderRadius: 10,
+          color: 'var(--gold)',
+          fontSize: 13,
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}>
+          <div style={{
+            width: 16, height: 16,
+            border: '2px solid var(--bd)',
+            borderTop: '2px solid var(--gold)',
+            borderRadius: '50%',
+            animation: 'spin .7s linear infinite',
+          }} />
+          Rendering images...
+        </div>
+      )}
+
+      {/* ── Batch Results ── */}
+      {batch.length > 0 && !loading && (
+        <>
+          {/* ── Action Bar ── */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 16,
+            flexWrap: 'wrap',
+            gap: 10,
+          }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Tag color="var(--green)">{successCount}/12 generated</Tag>
+              {batch.some((item) => !item.success) && (
+                <Tag color="var(--red)">{12 - successCount} failed</Tag>
+              )}
+              <span style={{ fontSize: 12, color: 'var(--tx-dim)' }}>
+                {selectedCount} selected
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Btn size="sm" variant="ghost" onClick={selectAll}>Select All</Btn>
+              <Btn size="sm" variant="ghost" onClick={deselectAll}>Deselect</Btn>
+              <Btn size="sm" onClick={copyAllCaptions} disabled={selectedCount === 0}>
+                <Icon name={allCopied ? 'check' : 'copy'} size={12} />
+                {allCopied ? 'Copied' : 'Copy Captions'}
+              </Btn>
+              <Btn size="sm" onClick={downloadAllZip} disabled={selectedCount === 0}>
+                <Icon name="download" size={12} /> Download Zip
+              </Btn>
+              <Btn size="sm" variant="primary" onClick={saveSelectedToLibrary} disabled={selectedCount === 0}>
+                <Icon name="check" size={12} /> Save to Library
+              </Btn>
+              <Btn size="sm" variant="ghost" onClick={generateBatch}>
+                <Icon name="refresh" size={12} /> Regenerate
+              </Btn>
+            </div>
+          </div>
+
+          {/* ── Grid ── */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: 16,
+          }}>
+            {batch.map((item, idx) => (
+              <BatchCard
+                key={item.id || idx}
+                item={item}
+                idx={idx}
+                onToggle={() => toggleSelect(idx)}
+                onDownload={() => downloadOne(item, idx)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Empty State ── */}
+      {batch.length === 0 && !loading && (
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
           <div style={{ opacity: 0.07, marginBottom: 10 }}>
             <Icon name="bolt" size={64} />
           </div>
           <div style={{ fontSize: 15, color: 'var(--tx-muted)', fontWeight: 500, marginTop: 14 }}>
-            Select a business and hit Generate
+            Select a business and generate a batch
           </div>
           <div style={{ fontSize: 12, color: 'var(--tx-dim)', marginTop: 5 }}>
-            AI creates a unique post with headline, caption, hashtags, and a 1080x1350 PNG.
+            Creates 12 unique posts with varied templates, content categories, and angles.
+            <br />Each post gets a different prompt strategy based on the business industry.
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Batch Card Component ──────────────────────────────────────────
+function BatchCard({ item, idx, onToggle, onDownload }) {
+  const [expanded, setExpanded] = useState(false);
+  const [captionCopied, setCaptionCopied] = useState(false);
+
+  if (!item.success) {
+    return (
+      <div style={{
+        background: 'var(--s1)',
+        border: '1px solid rgba(231,74,74,0.2)',
+        borderRadius: 12,
+        padding: 20,
+        textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginBottom: 4 }}>
+          Post {idx + 1} failed
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--tx-dim)' }}>
+          {item.error || 'Unknown error'}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <Tag color="var(--tx-dim)">{item.planItem?.category || 'unknown'}</Tag>
+        </div>
+      </div>
+    );
+  }
+
+  const r = item.result;
+  const templateColors = {
+    bold_statement: 'var(--gold)',
+    photo_feature: 'var(--blue)',
+    tip_card: 'var(--green)',
+    stat_callout: 'var(--purple)',
+    service_spotlight: 'var(--red)',
+  };
+
+  const copyCaption = () => {
+    const full = (r.caption || '') + '\n\n' + (r.hashtags || []).map((h) => '#' + h).join(' ');
+    navigator.clipboard.writeText(full).then(() => {
+      setCaptionCopied(true);
+      setTimeout(() => setCaptionCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div style={{
+      background: 'var(--s1)',
+      border: `1px solid ${item.selected ? 'var(--gold)' : 'var(--bd)'}`,
+      borderRadius: 12,
+      overflow: 'hidden',
+      transition: 'border-color 0.15s',
+      opacity: item.selected ? 1 : 0.55,
+    }}>
+      {/* Image */}
+      {item.imageData ? (
+        <div
+          onClick={onToggle}
+          style={{
+            width: '100%',
+            aspectRatio: '1080/1350',
+            backgroundImage: `url(${item.imageData})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            cursor: 'pointer',
+            position: 'relative',
+          }}
+        >
+          {/* Selection indicator */}
+          <div style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            background: item.selected ? 'var(--gold)' : 'rgba(0,0,0,0.5)',
+            border: item.selected ? 'none' : '2px solid rgba(255,255,255,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            {item.selected && <Icon name="check" size={14} />}
+          </div>
+
+          {/* Post number */}
+          <div style={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            background: 'rgba(0,0,0,0.6)',
+            borderRadius: 5,
+            padding: '2px 8px',
+            fontSize: 10,
+            fontWeight: 700,
+            color: '#fff',
+          }}>
+            {idx + 1}
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={onToggle}
+          style={{
+            width: '100%',
+            aspectRatio: '1080/1350',
+            background: 'var(--s2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            fontSize: 12,
+            color: 'var(--tx-dim)',
+          }}
+        >
+          Rendering...
         </div>
       )}
 
-      {/* Loading */}
-      {loading && (
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              border: '3px solid var(--bd)',
-              borderTop: '3px solid var(--gold)',
-              borderRadius: '50%',
-              animation: 'spin .7s linear infinite',
-              margin: '0 auto 14px',
-            }}
-          />
-          <div style={{ fontSize: 13, color: 'var(--tx-muted)' }}>
-            Generating content for {biz?.name}...
+      {/* Content */}
+      <div style={{ padding: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Tag color={templateColors[r.template] || 'var(--tx-dim)'}>{r.template?.replace('_', ' ')}</Tag>
+            <Tag color="var(--tx-muted)">{r.content_type?.replace('_', ' ')}</Tag>
           </div>
         </div>
-      )}
+
+        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, marginBottom: 4 }}>
+          {r.headline}
+        </div>
+
+        <div style={{
+          fontSize: 11,
+          color: 'var(--tx-muted)',
+          lineHeight: 1.4,
+          marginBottom: 8,
+        }}>
+          {r.subtext}
+        </div>
+
+        {/* Expandable caption */}
+        {expanded && (
+          <div style={{
+            fontSize: 11,
+            lineHeight: 1.6,
+            whiteSpace: 'pre-wrap',
+            marginBottom: 8,
+            padding: '8px 10px',
+            background: 'var(--bg)',
+            borderRadius: 6,
+            border: '1px solid var(--bd)',
+          }}>
+            {r.caption}
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              {(r.hashtags || []).map((h, i) => (
+                <Tag key={i} color="var(--purple)">#{h}</Tag>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          <Btn size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
+            {expanded ? 'Less' : 'More'}
+          </Btn>
+          <Btn size="sm" variant="ghost" onClick={copyCaption}>
+            <Icon name={captionCopied ? 'check' : 'copy'} size={11} />
+          </Btn>
+          <Btn size="sm" variant="ghost" onClick={onDownload} disabled={!item.imageData}>
+            <Icon name="download" size={11} />
+          </Btn>
+        </div>
+      </div>
     </div>
   );
 }

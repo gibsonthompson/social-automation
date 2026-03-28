@@ -60,15 +60,83 @@ const CONTENT_CATEGORIES = {
 };
 
 /**
- * Build a unique prompt for a given business.
- * The prompt structure, angles, and constraints differ by industry.
+ * Template distribution for a 12-post batch.
+ * Enforces visual variety in every batch.
  */
-export function buildPrompt(business) {
+const TEMPLATE_DISTRIBUTION = [
+  'bold_statement',
+  'bold_statement',
+  'bold_statement',
+  'tip_card',
+  'tip_card',
+  'tip_card',
+  'photo_feature',
+  'photo_feature',
+  'stat_callout',
+  'stat_callout',
+  'service_spotlight',
+  'service_spotlight',
+];
+
+/**
+ * Build a 12-item batch plan for a business.
+ * Each item gets a unique content category and an assigned template.
+ * All 8 categories are used, plus 4 repeats of high-value types.
+ */
+export function buildBatchPlan(business) {
   const industry = business.industry || 'consulting';
   const categories = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
 
-  // Pick a random content category for variety
-  const category = categories[Math.floor(Math.random() * categories.length)];
+  // Start with all 8 unique categories
+  const plan = [...categories];
+
+  // Add 4 more by cycling from the top (highest-priority categories)
+  for (let i = 0; plan.length < 12; i++) {
+    plan.push(categories[i % categories.length]);
+  }
+
+  // Shuffle the plan so order is unpredictable
+  for (let i = plan.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [plan[i], plan[j]] = [plan[j], plan[i]];
+  }
+
+  // Shuffle template distribution too
+  const templates = [...TEMPLATE_DISTRIBUTION];
+  for (let i = templates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [templates[i], templates[j]] = [templates[j], templates[i]];
+  }
+
+  // Pair categories with templates, but enforce stat_callout only with stat-friendly categories
+  const statCategories = ['urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight', 'revenue_hook'];
+
+  return plan.map((category, idx) => {
+    let template = templates[idx];
+    // If template is stat_callout but category isn't stat-friendly, swap to bold_statement
+    if (template === 'stat_callout' && !statCategories.includes(category)) {
+      template = 'bold_statement';
+    }
+    // If category IS stat-friendly and template isn't stat_callout, consider forcing it
+    if (statCategories.includes(category) && template !== 'stat_callout') {
+      // Only force if we haven't used too many stat_callouts already
+      const statCount = plan.slice(0, idx).filter((_, i) => templates[i] === 'stat_callout').length;
+      if (statCount < 2) {
+        template = 'stat_callout';
+      }
+    }
+    return { index: idx, category, template };
+  });
+}
+
+/**
+ * Build a prompt for a single post with a forced category and template.
+ */
+export function buildPrompt(business, forcedCategory, forcedTemplate) {
+  const industry = business.industry || 'consulting';
+  const categories = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
+  const category = forcedCategory || categories[Math.floor(Math.random() * categories.length)];
+  const template = forcedTemplate || 'bold_statement';
 
   const baseContext = `
 BUSINESS PROFILE:
@@ -92,26 +160,29 @@ Banned Words/Phrases: ${business.banned_words || 'N/A'}
 ${baseContext}
 
 CONTENT CATEGORY FOR THIS POST: ${category}
+ASSIGNED TEMPLATE: ${template}
 
 UNIVERSAL RULES:
 - NEVER use emojis anywhere in any field
-- headline: punchy, max 10 words. For stat_callout template, headline MUST be a compelling number (like "97%" or "2,400+" or "$15K" or "3 in 5")
+- headline: punchy, max 10 words. For stat_callout template, headline MUST be a compelling number/stat (like "97%" or "2,400+" or "$15K" or "3 in 5")
 - subtext: 1-2 sentences supporting the headline, max 25 words
 - caption: 2-3 short paragraphs, conversational, ends with a clear CTA. Written for social media (Instagram/LinkedIn). No hashtags in the caption itself.
 - hashtags: 5 relevant hashtags (without the # symbol)
 - cta: short call to action text (max 6 words) for the image overlay
+- template: MUST be "${template}" — this is pre-assigned, do not change it
 - Be SPECIFIC to this exact business. Reference their actual services, areas, and industry. Never be generic.
 - Content must feel like it was written by someone who works at this company, not by an AI content mill.
+- This is 1 of 12 posts in a batch. Make this one UNIQUE — do not repeat generic phrases.
 
-TEMPLATE SELECTION:
-- "bold_statement" — strong opinion or declaration, no photo needed
-- "photo_feature" — works best when paired with a photo, headline overlays image
-- "tip_card" — educational content, clean card layout on dark background
-- "stat_callout" — big number/stat as the hero, headline MUST be a number/stat
-- "service_spotlight" — highlights a specific service offering
+TEMPLATE CONTEXT (write content that fits this layout):
+- "bold_statement" — strong opinion or declaration on a solid color background. Headline is the hero.
+- "photo_feature" — headline overlays a photo with dark gradient. Write for visual impact.
+- "tip_card" — educational content in a clean white card. Write something actionable and useful.
+- "stat_callout" — a big number/stat is the visual centerpiece. Headline MUST be a number/percentage/stat.
+- "service_spotlight" — split layout highlighting a specific service. Be concrete about what the service solves.
 
 Respond with ONLY valid JSON. No markdown. No backticks. No explanation.
-{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"bold_statement|photo_feature|tip_card|stat_callout|service_spotlight","cta":"..."}`;
+{"headline":"...","subtext":"...","caption":"...","hashtags":["tag1","tag2","tag3","tag4","tag5"],"content_type":"${category}","template":"${template}","cta":"..."}`;
 }
 
 const INDUSTRY_PROMPTS = {
