@@ -130,11 +130,23 @@ export function buildBatchPlan(business) {
   const industry = business.industry || 'consulting';
   const cats = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
 
+  // Filter templates to only enabled post types for this business
+  const enabledTypes = business.design_system?.post_types?.filter(t => t.enabled).map(t => t.id) || [];
+  const availableTemplates = enabledTypes.length > 0
+    ? TEMPLATE_DISTRIBUTION.filter(t => enabledTypes.includes(t))
+    : TEMPLATE_DISTRIBUTION;
+
+  // Pad to 12 if fewer templates than posts
+  const tplPool = [];
+  while (tplPool.length < 12) {
+    tplPool.push(...availableTemplates);
+  }
+
   const plan = [...cats];
   for (let i = 0; plan.length < 12; i++) plan.push(cats[i % cats.length]);
 
   const shuffledPlan = shuffle(plan);
-  const shuffledTpls = shuffle(TEMPLATE_DISTRIBUTION);
+  const shuffledTpls = shuffle(tplPool.slice(0, 12));
 
   return shuffledPlan.map((category, idx) => {
     let template = shuffledTpls[idx];
