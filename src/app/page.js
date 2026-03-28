@@ -113,6 +113,9 @@ function GenPage({biz, addLib}) {
   const renderAllServer = async(items, bizData, photos)=>{
     setRendering(true); setRenderProgress(0);
     const upd=[...items];
+    const renderUrl = process.env.NEXT_PUBLIC_RENDER_URL || '/api/render';
+    const renderKey = process.env.NEXT_PUBLIC_RENDER_KEY || '';
+
     for(let i=0;i<upd.length;i++){
       const item=upd[i]; if(!item.success||!item.result) continue;
 
@@ -126,8 +129,11 @@ function GenPage({biz, addLib}) {
       }
 
       try {
-        const resp = await fetch('/api/render',{
-          method:'POST', headers:{'Content-Type':'application/json'},
+        const headers = {'Content-Type':'application/json'};
+        if(renderKey) headers['X-Render-Key'] = renderKey;
+
+        const resp = await fetch(`${renderUrl}/render`,{
+          method:'POST', headers,
           body:JSON.stringify({
             content:item.result,
             business:bizData,
