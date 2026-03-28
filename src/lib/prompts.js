@@ -42,13 +42,15 @@ const CONTENT_CATEGORIES = {
 };
 
 const TEMPLATE_DISTRIBUTION = [
-  'photo_hero', 'photo_hero', 'photo_hero',
+  'photo_hero', 'photo_hero',
   'full_graphic', 'full_graphic',
-  'checklist', 'checklist',
+  'checklist',
   'stat_callout', 'stat_callout',
   'process_steps',
   'review_showcase',
-  'full_graphic',
+  'service_highlight',
+  'offer_coupon',
+  'photo_hero',
 ];
 
 const STAT_FRIENDLY = [
@@ -139,6 +141,8 @@ export function buildPrompt(business, category, template, feedbackItems = [], ph
     review_showcase: ',"reviews":[{"text":"...","author":"Homeowner"}]',
     process_steps: ',"items":[{"title":"Step Name","subtitle":"Description"}]',
     stat_callout: ',"items":["context pill 1"]',
+    service_highlight: ',"items":["feature 1","feature 2"]',
+    offer_coupon: ',"items":["service1","service2"]',
   };
   const extraFields = templateFields[template] || '';
 
@@ -234,9 +238,11 @@ TEMPLATE-SPECIFIC FIELDS:
 For "photo_hero": Include "stats" array with 2-3 items like [{"value":"20+","label":"Years Experience"}] OR include "items" array with 3-4 trust points like [{"title":"IICRC Certified","subtitle":"Every tech trained"}]
 For "full_graphic": Include "items" array with 4-6 service/feature pills (short strings like "Foundation Repair")
 For "checklist": Include "items" array with 4-6 checklist items (short action strings)
-For "review_showcase": Include "reviews" array with 2-3 items like [{"text":"The review text...","author":"Homeowner"}]. Make reviews sound authentic and specific.
+For "review_showcase": Include "reviews" array with 2-3 items like [{"text":"The review text...","author":"Homeowner"}]. Make reviews sound authentic and specific to the local area.
 For "process_steps": Include "items" array with 3-5 step objects like [{"title":"Free Inspection","subtitle":"We assess your foundation — no charge"}]
 For "stat_callout": Include optional "items" array with 2-4 supporting context pills
+For "service_highlight": Include "items" array with 4-6 service features as dot-list items. Set "eyebrow" to a short category label.
+For "offer_coupon": Include "items" array with 4-6 service pills. Set "badge_label" to urgency text like "LIMITED TIME OFFER". Headline should be the offer amount like "$500 OFF".
 
 Be SPECIFIC to this business. Reference actual services, areas, industry.
 This is 1 of 12 posts in a batch. Make it UNIQUE.
@@ -247,7 +253,9 @@ TEMPLATE DESCRIPTIONS:
 - "checklist" — dark background, headline at top, vertical checklist with checkmark items
 - "review_showcase" — dark background, rating number hero, 2-3 review cards with star ratings
 - "process_steps" — photo at top (optional), numbered steps below on white background
-- "stat_callout" — dark gradient with radial glow, massive stat number as hero, supporting text below`;
+- "stat_callout" — dark gradient with radial glow, massive stat number as hero, supporting text below
+- "service_highlight" — gradient accent bar at top, logo, service-focused headline, dot-list of features
+- "offer_coupon" — red urgency banner at top, dashed coupon border around big offer headline, service pills`;
 }
 
 function buildFeedbackBlock(items) {
