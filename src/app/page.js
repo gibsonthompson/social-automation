@@ -113,7 +113,7 @@ function GenPage({biz, addLib}) {
   const renderAllServer = async(items, bizData, photos)=>{
     setRendering(true); setRenderProgress(0);
     const upd=[...items];
-    const renderUrl = process.env.NEXT_PUBLIC_RENDER_URL || '/api/render';
+    const renderUrl = 'https://urchin-app-bqb4i.ondigitalocean.app/api/content-render';
     const renderKey = process.env.NEXT_PUBLIC_RENDER_KEY || '';
 
     for(let i=0;i<upd.length;i++){
