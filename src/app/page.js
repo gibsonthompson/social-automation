@@ -4,18 +4,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_BUSINESSES, EMPTY_DESIGN_SYSTEM } from '@/lib/businesses';
 import { Btn, Input, Select, Tag, FieldLabel, Icon } from '@/components/ui';
 import { saveFeedback, getFeedbackForAPI, getFeedbackStats, clearFeedback } from '@/lib/feedback';
+import { getPhotos, savePhotos, getPhotoManifestForAPI } from '@/lib/photo-storage';
 
 // ── Persist ─────────────────────────────────────────────────────────
 function lsGet(k, fb) { if (typeof window==='undefined') return fb; try { const r=localStorage.getItem(k); return r?JSON.parse(r):fb; } catch{return fb;} }
 function lsSet(k, v) { if (typeof window==='undefined') return; try { localStorage.setItem(k, JSON.stringify(v)); } catch{} }
 
-// ── Photo Manifest helpers ──────────────────────────────────────────
-function getPhotoManifest(bizId) { return lsGet('cf_photos_'+bizId, []); }
-function setPhotoManifest(bizId, manifest) { lsSet('cf_photos_'+bizId, manifest); }
-// Strip base64 data for API (just metadata)
-function getManifestForAPI(bizId) {
-  return getPhotoManifest(bizId).map(({data, ...rest}) => rest);
-}
+// ── Photo storage is now in IndexedDB (src/lib/photo-storage.js) ──
 
 // ══════════════════════════════════════════════════════════════════════
 export default function ContentFarm() {
@@ -89,8 +84,8 @@ function GenPage({biz, addLib}) {
     setLoading(true); setErr(null); setBatch([]); setRenderProgress(0);
     try {
       const feedback = getFeedbackForAPI(bizId);
-      const photoManifest = getManifestForAPI(bizId);
-      const photos = getPhotoManifest(bizId);
+      const photoManifest = await getPhotoManifestForAPI(bizId);
+      const photos = await getPhotos(bizId);
 
       const resp = await fetch('/api/generate',{
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -186,7 +181,8 @@ function GenPage({biz, addLib}) {
 
   const selCount=batch.filter(i=>i.selected).length;
   const okCount=batch.filter(i=>i.success).length;
-  const photoCount=getPhotoManifest(bizId).length;
+  const [photoCount, setPhotoCount] = useState(0);
+  useEffect(()=>{getPhotos(bizId).then(p=>setPhotoCount(p.length));},[bizId,batch]);
 
   return(
     <div style={{padding:28}}>
@@ -550,10 +546,10 @@ function PhotoPage({biz,onUpdate}){
   const [busy,setBusy]=useState(false);
   const fRef=useRef(null);
 
-  // Load from localStorage
-  useEffect(()=>{setPhotos(getPhotoManifest(bizId));},[bizId]);
-  // Save on change
-  useEffect(()=>{if(photos.length>=0) setPhotoManifest(bizId,photos);},[photos,bizId]);
+  // Load from IndexedDB
+  useEffect(()=>{getPhotos(bizId).then(p=>setPhotos(p));},[bizId]);
+
+  const persistPhotos=(newPhotos)=>{setPhotos(newPhotos);savePhotos(bizId,newPhotos);};
 
   const upload=async e=>{
     const files=Array.from(e.target.files||[]);if(!files.length)return;
@@ -564,14 +560,15 @@ function PhotoPage({biz,onUpdate}){
       const data=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f);});
       arr.push({data,filename:f.name,description:'',service_type:'general',branding:'',best_use:'',phone_visible:false,mood:'professional'});
     }
-    setPhotos(p=>[...p,...arr]);
+    const updated=[...photos,...arr];
+    persistPhotos(updated);
     setBusy(false);
     if(fRef.current)fRef.current.value='';
     onUpdate();
   };
 
-  const del=idx=>{setPhotos(p=>p.filter((_,i)=>i!==idx));onUpdate();};
-  const upd=(idx,field,val)=>{setPhotos(p=>{const a=[...p];a[idx]={...a[idx],[field]:val};return a;});};
+  const del=idx=>{const updated=photos.filter((_,i)=>i!==idx);persistPhotos(updated);onUpdate();};
+  const upd=(idx,field,val)=>{const a=[...photos];a[idx]={...a[idx],[field]:val};persistPhotos(a);};
 
   const svcTypes=['general','exterior-waterproofing','foundation-repair','crawl-space','basement-waterproofing','drainage','mold-remediation','commercial','team-branded','product','office','lifestyle','equipment','screenshot'];
   const moods=['professional','casual','action','result','dramatic','clean'];
