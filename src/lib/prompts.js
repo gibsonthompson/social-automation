@@ -71,8 +71,22 @@ const REAL_REVIEWS = {
 
 const PHOTO_REQUIRED_TEMPLATES = ['photo_hero', 'process_steps', 'split_feature', 'did_you_know'];
 const VISUAL_CATEGORIES = ['before_after', 'process_education', 'build_showcase', 'client_win'];
-const NO_PHOTO_CATEGORIES = ['myth_bust', 'urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight', 'contrarian_take'];
+const NO_PHOTO_CATEGORIES = ['myth_bust', 'urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight', 'contrarian_take', 'diy_trap', 'missed_call_pain', 'differentiation', 'project_trap'];
 const REVIEW_ONLY_CATEGORIES = ['social_proof', 'testimonial_style'];
+
+// VoiceAI Connect: each pain point maps to a specific template for visual variety
+const SAAS_TECH_TEMPLATE_MAP = {
+  'diy_trap':         'stat_callout',      // Big red 80% fail stat
+  'revenue_ceiling':  'did_you_know',      // Comparison rows (hrs → 0)
+  'funnel_gap':       'process_steps',     // Step 2 highlighted
+  'differentiation':  'full_graphic',      // "Not Another CRM" editorial
+  'speed_advantage':  'warning_signs',     // 60s vs 2 weeks comparison cards
+  'white_label':      'split_feature',     // Dashboard mock + "Start owning"
+  'missed_call_pain': 'checklist',         // Mock call log items
+  'project_trap':     'service_highlight', // Revenue comparison grid
+  'competitor_fomo':  'brand_intro',       // Before/after centered
+  'audience_filter':  'split_feature',     // Numbered "Built For" cards
+};
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,8 +99,9 @@ const CONTENT_CATEGORIES = {
     'homeowner_tip', 'social_proof', 'urgency_stat', 'process_education',
   ],
   saas_tech: [
-    'revenue_hook', 'competitor_gap', 'case_study', 'feature_spotlight',
-    'industry_trend', 'objection_killer', 'founder_insight', 'roi_math',
+    'diy_trap', 'revenue_ceiling', 'funnel_gap', 'differentiation',
+    'speed_advantage', 'white_label', 'missed_call_pain', 'project_trap',
+    'competitor_fomo', 'audience_filter',
   ],
   saas_smb: [
     'missed_call_pain', 'simplicity_hook', 'industry_specific', 'comparison',
@@ -115,6 +130,7 @@ const TEMPLATE_DISTRIBUTION = [
 const STAT_FRIENDLY = [
   'urgency_stat', 'stat_shock', 'roi_math', 'metric_spotlight',
   'revenue_hook', 'cost_savings', 'industry_data', 'fuel_strategy',
+  'diy_trap', 'missed_call_pain',
 ];
 
 function shuffle(arr) {
@@ -150,6 +166,12 @@ export function buildBatchPlan(business) {
 
   return shuffledPlan.map((category, idx) => {
     let template = shuffledTpls[idx];
+
+    // saas_tech: use forced template mapping for visual variety per pain point
+    if (industry === 'saas_tech' && SAAS_TECH_TEMPLATE_MAP[category]) {
+      template = SAAS_TECH_TEMPLATE_MAP[category];
+      return { index: idx, category, template };
+    }
 
     // stat_callout only for stat-friendly categories
     if (template === 'stat_callout' && !STAT_FRIENDLY.includes(category)) template = 'full_graphic';
@@ -197,6 +219,12 @@ export function buildPrompt(business, category, template, feedbackItems = [], ph
   }
 
   sections.push(`CONTENT CATEGORY: ${category}\nASSIGNED TEMPLATE: ${template}`);
+
+  // saas_tech: inject specific pain point direction per category
+  if (industry === 'saas_tech') {
+    sections.push(buildSaasTechCategoryGuide(category, template));
+  }
+
   sections.push(buildRulesBlock(category, template, business));
 
   const fb = buildFeedbackBlock(feedbackItems);
@@ -357,6 +385,78 @@ function buildFeedbackBlock(items) {
     });
   }
   return block;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// SAAS_TECH PAIN POINT CONTENT DIRECTION
+// Each category is a specific pain point with exact content guidance
+// ═══════════════════════════════════════════════════════════════════
+
+function buildSaasTechCategoryGuide(category, template) {
+  const guides = {
+    diy_trap: `PAIN POINT: "Don't Build Your Own AI Tool"
+ANGLE: 80%+ of AI projects fail to deploy (RAND Corporation). Building costs $50K-$300K and takes 6-12 months. VoiceAI Connect is production-ready today.
+HEADLINE DIRECTION: Lead with the failure stat or cost. Example: "80% of AI Projects Fail Before Launch" or "$150K Later, Still No Product"
+ITEMS: Include 3-4 comparison points: build cost, timeline, failure rate, maintenance burden
+Use red/negative framing for the problem. The solution is: just use the platform.`,
+
+    revenue_ceiling: `PAIN POINT: "Your Agency Has a Revenue Ceiling — It's Your Calendar"
+ANGLE: Every service agencies sell (SEO, ads, web design) costs hours to deliver. At 15-20 clients, you're maxed. AI receptionist costs 0 delivery hours. Client 30 takes the same time as client 1.
+HEADLINE DIRECTION: "Your Agency Has a Ceiling" or "2hrs Per Client Setup. Now Zero." or "Same Revenue. No Delivery."
+ITEMS: Comparison rows — SEO client: $1,500/mo, 12 hrs. Ads client: $2,000/mo, 20 hrs. AI receptionist client: $297/mo, 0 hrs.
+Show the math. Make it undeniable.`,
+
+    funnel_gap: `PAIN POINT: "The Funnel Step Nobody Talks About"
+ANGLE: Ad Click → Phone Rings → Booked Job. Step 2 is where clients bleed money. Agencies optimize Step 1 (ads) and Step 3 (CRM), but nobody owns the phone call.
+HEADLINE DIRECTION: "Step 2 Is Where Your Clients Bleed Money" or "The Funnel Nobody Talks About"
+ITEMS: 3 steps — Ad Click, Phone Rings (HIGHLIGHTED as the gap), Booked Job. Step 2 must stand out visually.
+This post reframes what VoiceAI Connect does — it owns the gap in the funnel.`,
+
+    differentiation: `PAIN POINT: "Not Another CRM — Purpose-Built AI Call Layer"
+ANGLE: GoHighLevel already exists. Agencies don't need another CRM/marketing suite. VoiceAI Connect does ONE thing: answers your client's phone and captures the lead. Not a dialer. Not a chatbot. Not a replacement for anything.
+HEADLINE DIRECTION: "Not Another CRM." (bold, period included) with subtext "Purpose-Built AI Call Layer"
+ITEMS: 3-4 "not" statements — Not a GoHighLevel replacement, Not a marketing suite, Not another tool to learn, Not a chatbot
+This is a POSITIONING post. Clean, definitive, no fluff.`,
+
+    speed_advantage: `PAIN POINT: "60 Seconds vs. 2 Weeks"
+ANGLE: Competing platforms require A2P SMS registration (2-week wait), manual configuration per client, onboarding calls. VoiceAI Connect: client is live in 60 seconds, automated, no A2P, no setup calls.
+HEADLINE DIRECTION: "60 Seconds vs. 2 Weeks" or "Your Client Is Live Before You Finish Reading This"
+ITEMS: Comparison pairs — problem (red/X): A2P registration 2 weeks, Manual config per client, Onboarding Zoom call. Solution (green/check): Automated provisioning, 60-second onboarding, Self-serve dashboard.
+Before/after comparison cards.`,
+
+    white_label: `PAIN POINT: "Stop Reselling. Start Owning."
+ANGLE: Your brand on every screen. Your domain. Your pricing. Clients log in and see your company — not ours. White-label means you charge what a tech company charges, not what a reseller charges.
+HEADLINE DIRECTION: "Stop Reselling. Start Owning." or "Your Brand. Every Screen."
+ITEMS: Feature list — Your domain, Your logo, Your pricing, Your client portal. Consider mock dashboard reference.
+This post is about ownership and perceived value.`,
+
+    missed_call_pain: `PAIN POINT: "The 7 PM Problem — Your Clients' Phones Are Going to Voicemail"
+ANGLE: After-hours is when emergencies happen. Pipe bursts, HVAC failures, roof leaks. 3 calls come in, all go to voicemail. 85% of callers won't leave a message. AI doesn't clock out.
+HEADLINE DIRECTION: "This Happened to 3 of Your Clients Last Night" or "Missed Call. Missed Call. Missed Call."
+ITEMS: Mock call log entries — "Missed Call — 7:02 PM", "Missed Call — 7:14 PM", "Missed Call — 7:31 PM", "Missed Call — 8:45 PM"
+Make it visceral. These are real scenarios agency clients face every day.`,
+
+    project_trap: `PAIN POINT: "The Project-Based Trap — Run the Numbers on Your Hourly Rate"
+ANGLE: Website: $3K one-time, then hunt for the next client. SEO: $1,500/mo, 12 hrs of work. Ads: $2K/mo, 20 hrs of campaigns. AI receptionist: $297/mo, 0 hours. Which service actually scales?
+HEADLINE DIRECTION: "Run the Numbers on Your Actual Hourly Rate" or "The Service That Scales to Infinity"
+ITEMS: 3-4 service comparison rows showing price, hours, and effective hourly rate. Highlight AI receptionist as infinity/hr.
+This post makes the economics impossible to ignore.`,
+
+    competitor_fomo: `PAIN POINT: "Your Clients' Competitors Already Have AI Receptionists"
+ANGLE: While your client sends calls to voicemail at 7 PM, their competitor's AI is booking the job. How long before your clients notice? Give them the edge before their competitors do.
+HEADLINE DIRECTION: "Your Client's Competitors Are Already Using This" or "Their Competitor Books Jobs at 6 AM Saturday"
+ITEMS: Comparison — Without AI (missed calls, voicemail, lost revenue) vs. With AI (every call answered, every job booked). Use X/check pattern.
+This is a FOMO post. Urgency through competitive pressure.`,
+
+    audience_filter: `PAIN POINT: "Built For Specific Agency Types"
+ANGLE: This isn't for everyone. It's for Google Ads agencies, home service marketers, local lead gen companies, and anyone managing call-heavy accounts. If your clients depend on phone calls to make money, this is the easiest upsell you'll ever close.
+HEADLINE DIRECTION: "Built For:" with numbered list below
+ITEMS: 4 audience segments with descriptions — Google Ads Agencies (You drive calls), Home Service Marketers (HVAC, plumbing, roofing — call-heavy), Local Lead Gen Companies (Now sell what happens when the phone rings), Call-Heavy Accounts (Inbound calls = revenue)
+This is an AUDIENCE FILTER post. It qualifies the viewer.`,
+  };
+
+  return guides[category] || '';
 }
 
 

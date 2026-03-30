@@ -171,6 +171,8 @@ export const DEFAULT_BUSINESSES = [
         { id: 'split_feature', name: 'Split Feature', enabled: true },
         { id: 'brand_intro', name: 'Brand Intro', enabled: true },
         { id: 'did_you_know', name: 'Did You Know', enabled: true },
+        { id: 'process_steps', name: 'Process Steps', enabled: true },
+        { id: 'warning_signs', name: 'Warning Signs', enabled: true },
       ],
       style_notes: 'LUXURY DARK AESTHETIC. Background #050505 (deeper than pure black). Text hierarchy through opacity: primary #fafaf9, secondary 70%, tertiary 50%, subtle 40%. Emerald #10b981 is the ONLY color accent — used for CTAs, highlights, status dots, key numbers. No other colors. Borders are white at 6-8% opacity. Cards use rgba(255,255,255,0.02) with subtle borders. Typography is Plus Jakarta Sans at weights 400-900, tight letter spacing on headlines (-0.045em), wide tracking on uppercase labels (0.05em). Space Mono for monospace accents (labels, URLs, status text). No stock photos. No emoji. No trust badges. No decorative elements. The visual language is RESTRAINT — like a premium product that doesn\'t need to shout. Think Apple keynote meets fintech dashboard. Every post should look like it belongs in a pitch deck, not an Instagram feed.',
     },
