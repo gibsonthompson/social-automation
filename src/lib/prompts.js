@@ -142,9 +142,13 @@ function shuffle(arr) {
   return a;
 }
 
-export function buildBatchPlan(business) {
+export function buildBatchPlan(business, platform = 'instagram') {
   const industry = business.industry || 'consulting';
   const cats = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
+  const isLinkedIn = platform === 'linkedin';
+
+  // LinkedIn: 10 posts, Instagram: 12
+  const postCount = isLinkedIn ? 10 : 12;
 
   // Filter templates to only enabled post types for this business
   const enabledTypes = business.design_system?.post_types?.filter(t => t.enabled).map(t => t.id) || [];
@@ -152,24 +156,25 @@ export function buildBatchPlan(business) {
     ? TEMPLATE_DISTRIBUTION.filter(t => enabledTypes.includes(t))
     : TEMPLATE_DISTRIBUTION;
 
-  // Pad to 12 if fewer templates than posts
+  // Pad to postCount if fewer templates than posts
   const tplPool = [];
-  while (tplPool.length < 12) {
+  while (tplPool.length < postCount) {
     tplPool.push(...availableTemplates);
   }
 
   const plan = [...cats];
-  for (let i = 0; plan.length < 12; i++) plan.push(cats[i % cats.length]);
+  for (let i = 0; plan.length < postCount; i++) plan.push(cats[i % cats.length]);
 
-  const shuffledPlan = shuffle(plan);
-  const shuffledTpls = shuffle(tplPool.slice(0, 12));
+  const shuffledPlan = shuffle(plan).slice(0, postCount);
+  const shuffledTpls = shuffle(tplPool.slice(0, postCount));
 
   return shuffledPlan.map((category, idx) => {
     let template = shuffledTpls[idx];
 
     // saas_tech: use forced template mapping for visual variety per pain point
+    // LinkedIn: all posts use full_graphic (simple graphic, caption is the content)
     if (industry === 'saas_tech' && SAAS_TECH_TEMPLATE_MAP[category]) {
-      template = SAAS_TECH_TEMPLATE_MAP[category];
+      template = isLinkedIn ? 'full_graphic' : SAAS_TECH_TEMPLATE_MAP[category];
       return { index: idx, category, template };
     }
 
@@ -199,10 +204,11 @@ export function buildBatchPlan(business) {
 // NODE 2: PROMPT ASSEMBLY
 // ═══════════════════════════════════════════════════════════════════
 
-export function buildPrompt(business, category, template, feedbackItems = [], photoManifest = []) {
+export function buildPrompt(business, category, template, feedbackItems = [], photoManifest = [], platform = 'instagram') {
   const industry = business.industry || 'consulting';
   const systemPrompt = INDUSTRY_PROMPTS[industry] || INDUSTRY_PROMPTS.consulting;
   const seasonCtx = getSeasonContext();
+  const isLinkedIn = platform === 'linkedin';
   const sections = [];
 
   sections.push(systemPrompt);
@@ -225,7 +231,7 @@ export function buildPrompt(business, category, template, feedbackItems = [], ph
     sections.push(buildSaasTechCategoryGuide(category, template));
   }
 
-  sections.push(buildRulesBlock(category, template, business));
+  sections.push(buildRulesBlock(category, template, business, isLinkedIn));
 
   const fb = buildFeedbackBlock(feedbackItems);
   if (fb) sections.push(fb);
@@ -325,27 +331,40 @@ function buildPhotoManifestContext(manifest, template, category) {
   return block;
 }
 
-function buildRulesBlock(category, template, biz) {
+function buildRulesBlock(category, template, biz, isLinkedIn = false) {
   const ctx = getSeasonContext();
   const areas = (biz.service_areas || 'Atlanta').split(',').map(s => s.trim()).filter(Boolean);
   const city1 = areas[0] || 'Atlanta';
 
+  const captionRule = isLinkedIn
+    ? `- caption: THIS IS THE MAIN CONTENT — the graphic is secondary. Write 5-8 short paragraphs, 1-2 sentences each. Put a BLANK LINE between EVERY paragraph (this is critical for LinkedIn readability). First line MUST be a scroll-stopping hook — this is what shows before "...see more" so it needs to earn the click. Write like you're talking to a friend who runs an agency. Conversational, direct, no corporate speak. End with a question or soft CTA that invites a comment. No hashtags in the caption body. No emojis. No exclamation marks. NEVER use these AI-sounding phrases: "here's the thing", "let me be honest", "let that sink in", "read that again", "I'll say it louder", "hot take", "unpopular opinion". Just say the thing directly. The caption should work as a standalone LinkedIn post even without the image.`
+    : `- caption: 2-3 paragraphs, conversational, ends with CTA. No hashtags in body. Must sound like a real person at this company wrote it.`;
+
+  const hashtagRule = isLinkedIn
+    ? `- hashtags: 3-5 total. Place AFTER the caption, separated by a blank line. Mix of industry + audience: #AIReceptionist, #AgencyGrowth, #RecurringRevenue, #WhiteLabel, #MarketingAgency, #SaaS, #LeadGen. Pick the 3-5 most relevant.`
+    : `- hashtags: 5 total. ${biz.industry === 'home_service' ? `Include 2+ local: ${areas.slice(0, 4).map(c => '#' + c.replace(/\s/g, '')).join(', ')}, #MetroAtlanta, #ATLHomeRepair` : 'Mix industry + local hashtags.'}`;
+
   return `CONTENT RULES:
 - NEVER use emojis
-- headline: punchy, max 10 words, MUST be specific (city, service, pain point, or stat). For stat_callout: headline MUST be a number. For review_showcase: use rating like "5.0 STARS FROM ${city1.toUpperCase()} HOMEOWNERS"
-- subtext: 1-2 sentences, max 25 words
-- caption: 2-3 paragraphs, conversational, ends with CTA. No hashtags in body. Must sound like a real person at this company wrote it.
-- hashtags: 5 total. ${biz.industry === 'home_service' ? `Include 2+ local: ${areas.slice(0, 4).map(c => '#' + c.replace(/\s/g, '')).join(', ')}, #MetroAtlanta, #ATLHomeRepair` : 'Mix industry + local hashtags.'}
+- headline: punchy, max 10 words, MUST be specific (city, service, pain point, or stat).${isLinkedIn ? ' This appears on the GRAPHIC IMAGE only — keep it short and bold.' : ''} For stat_callout: headline MUST be a number. For review_showcase: use rating like "5.0 STARS FROM ${city1.toUpperCase()} HOMEOWNERS"
+- subtext: 1-2 sentences, max 25 words.${isLinkedIn ? ' This is the secondary line on the graphic below the headline.' : ''}
+${captionRule}
+${hashtagRule}
 - highlight_words: 1-3 key words from headline to accent-color
 - cta_line1/cta_line2: ${biz.design_system?.cta_bar?.cta_variations?.length ? 'MUST pick from the CTA VARIATIONS list above. Split on "|".' : 'Write a 2-4 word CTA.'}
 - badge_label: urgency badge or "". Only for seasonal/offer/warning posts.
 - eyebrow: small label or "". Only when it adds context.
 - template: MUST be "${template}"
-
+${isLinkedIn ? `
+LINKEDIN CAPTION QUALITY:
+GOOD first lines: "I spent 6 months building an AI receptionist from scratch. If I could go back, I'd do it in a weekend." | "A plumber in Atlanta told me he missed 11 calls last Tuesday." | "Most agencies sell time. The smart ones sell infrastructure."
+BAD first lines (REJECTED): "Excited to announce..." | "In today's fast-paced world..." | "AI is changing everything..." | "Let me share something with you..."
+Good = SPECIFIC, story-driven, creates curiosity. Bad = GENERIC corporate or AI-sounding openers.
+The caption must read like a real founder wrote it on their phone between meetings. Short sentences. Direct. No filler words.` : `
 HEADLINE QUALITY:
 GOOD: "${city1}'s Red Clay Is Eating Your Foundation" | "${ctx.monthName} Storms Test Every Basement" | "83% Of Cracks Start Small" | "$500 Off This ${ctx.monthName}"
 BAD (REJECTED): "Protect Your Home Today" | "Quality Service You Can Trust" | "We're Here For You" | "Expert Solutions" | "Don't Wait To Call"
-Good = SPECIFIC (city, stat, service, pain). Bad = GENERIC (could be any company).
+Good = SPECIFIC (city, stat, service, pain). Bad = GENERIC (could be any company).`}
 
 TEMPLATE-SPECIFIC FIELDS:
 For "photo_hero": "stats" array [{"value":"20+","label":"Years"}] OR "items" array [{"title":"IICRC Certified","subtitle":"Every tech trained"}]
@@ -362,7 +381,7 @@ For "brand_intro": "items" services + "stats" [{"value":"20+","label":"Years"}]
 For "split_feature": "items" [{"title":"...","subtitle":"..."}]
 
 SEASON: ${ctx.season} (${ctx.monthName} ${ctx.year}). All content must match current season.
-Be SPECIFIC to this business. This is 1 of 12 — make it UNIQUE.`;
+Be SPECIFIC to this business. This is 1 of ${isLinkedIn ? '10' : '12'} — make it UNIQUE.`;
 }
 
 function buildFeedbackBlock(items) {

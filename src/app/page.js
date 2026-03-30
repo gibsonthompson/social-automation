@@ -68,6 +68,7 @@ export default function ContentFarm() {
 // ══════════════════════════════════════════════════════════════════════
 function GenPage({biz, addLib}) {
   const [bizId, setBizId] = useState(biz[0]?.id||'');
+  const [platform, setPlatform] = useState('instagram');
   const [loading, setLoading] = useState(false);
   const [batch, setBatch] = useState([]);
   const [err, setErr] = useState(null);
@@ -89,7 +90,7 @@ function GenPage({biz, addLib}) {
 
       const resp = await fetch('/api/generate',{
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({business:b, mode:'batch', feedback, photoManifest}),
+        body:JSON.stringify({business:b, mode:'batch', feedback, photoManifest, platform}),
       });
       const data = await resp.json();
       if(data.error) throw new Error(data.error);
@@ -134,6 +135,7 @@ function GenPage({biz, addLib}) {
             business:bizData,
             templateId:item.result.template,
             photoDataUrl,
+            platform,
           }),
         });
         const data = await resp.json();
@@ -195,8 +197,16 @@ function GenPage({biz, addLib}) {
         <div style={{minWidth:220}}>
           <Select label="Business" value={bizId} onChange={v=>{setBizId(v);setBatch([]);}} options={biz.map(x=>({value:x.id,label:x.name}))}/>
         </div>
+        <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--bd)',height:38,alignSelf:'flex-end'}}>
+          {['instagram','linkedin'].map(p=>(
+            <button key={p} onClick={()=>setPlatform(p)} style={{
+              padding:'0 16px',fontSize:12,fontWeight:600,fontFamily:'inherit',cursor:'pointer',border:'none',textTransform:'capitalize',
+              background:platform===p?'var(--blue)':'var(--s1)',color:platform===p?'#fff':'var(--tx-muted)',
+            }}>{p}</button>
+          ))}
+        </div>
         <Btn variant="primary" size="lg" onClick={generateBatch} disabled={loading||!b}>
-          {loading?'Generating 12 posts...':'Generate 12 Posts'}
+          {loading?`Generating ${platform==='linkedin'?'10':'12'} posts...`:`Generate ${platform==='linkedin'?'10':'12'} Posts`}
         </Btn>
         {fbStats.total>0&&(
           <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 14px',background:'var(--s1)',borderRadius:8,border:'1px solid var(--bd)'}}>

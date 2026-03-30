@@ -5,9 +5,9 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-async function generateOne(business, planItem, feedbackItems = [], photoManifest = [], retryCount = 0) {
+async function generateOne(business, planItem, feedbackItems = [], photoManifest = [], platform = 'instagram', retryCount = 0) {
   try {
-    const prompt = buildPrompt(business, planItem.category, planItem.template, feedbackItems, photoManifest);
+    const prompt = buildPrompt(business, planItem.category, planItem.template, feedbackItems, photoManifest, platform);
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -40,7 +40,7 @@ async function generateOne(business, planItem, feedbackItems = [], photoManifest
     return { success: true, result: parsed, planItem };
   } catch (error) {
     if (error instanceof SyntaxError && retryCount < 1) {
-      return generateOne(business, planItem, feedbackItems, photoManifest, retryCount + 1);
+      return generateOne(business, planItem, feedbackItems, photoManifest, platform, retryCount + 1);
     }
     console.error(`Failed ${planItem.index} (${planItem.category}):`, error.message);
     return { success: false, error: error.message || 'Generation failed', planItem };
@@ -49,7 +49,7 @@ async function generateOne(business, planItem, feedbackItems = [], photoManifest
 
 export async function POST(request) {
   try {
-    const { business, mode, feedback, photoManifest } = await request.json();
+    const { business, mode, feedback, photoManifest, platform } = await request.json();
 
     if (!business || !business.name) {
       return Response.json({ error: 'Business data is required' }, { status: 400 });
@@ -57,10 +57,11 @@ export async function POST(request) {
 
     const feedbackItems = feedback || [];
     const photos = photoManifest || [];
+    const plat = platform || 'instagram';
 
     if (mode === 'single') {
-      const plan = buildBatchPlan(business);
-      const result = await generateOne(business, plan[0], feedbackItems, photos);
+      const plan = buildBatchPlan(business, plat);
+      const result = await generateOne(business, plan[0], feedbackItems, photos, plat);
       if (result.success) {
         return Response.json({ results: [result], summary: { total: 1, success: 1, failed: 0 } });
       }
@@ -68,8 +69,8 @@ export async function POST(request) {
     }
 
     // Batch mode
-    const plan = buildBatchPlan(business);
-    const promises = plan.map((item) => generateOne(business, item, feedbackItems, photos));
+    const plan = buildBatchPlan(business, plat);
+    const promises = plan.map((item) => generateOne(business, item, feedbackItems, photos, plat));
     const outcomes = await Promise.allSettled(promises);
 
     const results = outcomes.map((outcome, idx) => {
