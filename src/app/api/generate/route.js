@@ -12,6 +12,7 @@ async function generateOne(business, planItem, feedbackItems = [], photoManifest
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
+      temperature: 0.9,
       messages: [{ role: 'user', content: prompt }],
     });
 
