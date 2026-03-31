@@ -76,7 +76,7 @@ const REVIEW_ONLY_CATEGORIES = ['social_proof', 'testimonial_style'];
 
 // VoiceAI Connect: each pain point maps to a specific template for visual variety
 const SAAS_TECH_TEMPLATE_MAP = {
-  'diy_trap':         'stat_callout',      // Big red 80% fail stat
+  'diy_trap':         'stat_callout',      // Cost/failure stat
   'revenue_ceiling':  'did_you_know',      // Comparison rows (hrs → 0)
   'funnel_gap':       'process_steps',     // Step 2 highlighted
   'differentiation':  'full_graphic',      // "Not Another CRM" editorial
@@ -349,6 +349,7 @@ function buildRulesBlock(category, template, biz, isLinkedIn = false) {
 
   return `CONTENT RULES:
 - NEVER use emojis
+- NEVER fabricate statistics. Do not invent percentages, dollar amounts, or data points. Use honest ranges ("most", "$50K-$300K", "6-12 months") instead of fake precision ("80.7%", "$147K average"). If you don't know the exact number, say "most" or give a range.
 - headline: punchy, max 10 words, MUST be specific (city, service, pain point, or stat).${isLinkedIn ? ' This appears on the GRAPHIC IMAGE only — keep it short and bold.' : ''} For stat_callout: headline MUST be a number. For review_showcase: use rating like "5.0 STARS FROM ${city1.toUpperCase()} HOMEOWNERS"
 - subtext: 1-2 sentences, max 25 words.${isLinkedIn ? ' This is the secondary line on the graphic below the headline.' : ''}
 ${captionRule}
@@ -454,96 +455,108 @@ function buildFeedbackBlock(items) {
 // ═══════════════════════════════════════════════════════════════════
 
 function buildSaasTechCategoryGuide(category, template) {
+  // Random scenario pool per category — different scenario each run
+  const scenarios = {
+    diy_trap: ['a dev agency that spent 8 months on a custom voice AI', 'a marketing agency owner who hired a freelance AI developer', 'a friend who sank his savings into building an AI tool from scratch', 'an agency that went through 3 developers before giving up'],
+    revenue_ceiling: ['an agency doing $25K/mo who couldn\'t take on more clients', 'a solo operator who hit $15K/mo and plateaued for a year', 'a 3-person agency that was turning away business', 'an agency owner working 70-hour weeks at $20K/mo'],
+    funnel_gap: ['a roofing company spending $4K/mo on ads but missing half the calls', 'a plumber whose Google Ads were working but calls went to voicemail after 5pm', 'a dentist getting 30 calls/week from ads but only answering 18', 'an HVAC company whose best leads called on weekends when nobody was there'],
+    differentiation: ['switching between 6 different dashboards before lunch', 'paying for a CRM with 200 features and using 3', 'an agency that onboarded GoHighLevel and their clients never logged in', 'the moment you realize your clients don\'t need another tool'],
+    speed_advantage: ['waiting 2 weeks for A2P registration on every new client', 'spending an hour configuring each new client manually', 'a client who signed up Monday and wasn\'t live until the following week', 'the onboarding call that could have been automated'],
+    white_label: ['a client asking why your dashboard says another company\'s name', 'the moment you realize resellers and product owners get paid differently', 'an agency that rebranded from reseller to tech company overnight', 'clients who think you built the technology yourself'],
+    missed_call_pain: ['a pipe burst in Marietta at 7 PM on a Tuesday', 'an AC unit dying in July at 9 PM in Atlanta', 'a basement flooding during a Saturday thunderstorm', 'a restaurant getting 4 reservation calls while the owner was cooking'],
+    project_trap: ['calculating your effective hourly rate and not liking the number', 'finishing a $5K website project and immediately needing the next one', 'comparing your SEO retainer hours to what you actually earn per hour', 'the realization that you\'re trading time for money at every level'],
+    competitor_fomo: ['finding out a competing agency just signed 3 of your prospect\'s competitors', 'a client asking why their competitor\'s phone gets answered at 6 AM', 'seeing another agency post about their AI receptionist offering on LinkedIn', 'losing a pitch because the other agency included AI answering in their package'],
+    audience_filter: ['a Google Ads agency that drives 200 calls/week for clients', 'a home service marketer managing 15 plumbing and HVAC accounts', 'a lead gen company that sells leads but can\'t control the conversion', 'a solo agency owner looking for their first zero-fulfillment product'],
+  };
+
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const scenario = scenarios[category] ? pick(scenarios[category]) : '';
+
   const guides = {
-    diy_trap: `THIS POST: The DIY Warning — why building your own AI tool is a trap
-TARGET: The agency owner who's been thinking about hiring a dev team to build AI
-HEADLINE: Must be a NUMBER or COST. Use one of: "80%" or "$150K" or "6 Months" — the headline IS the stat. Nothing else.
-SUBTEXT: One sentence explaining the stat. Example: "of AI projects never make it to production"
-CAPTION MUST START WITH: A story about someone who tried to build their own. First line examples: "I watched an agency owner spend $80K on a custom AI phone system." or "A friend of mine hired three developers last year."
-CAPTION STRUCTURE: Story of failure → the cost → the alternative → no pitch, just the lesson learned.
-ITEMS: 3-4 cost/timeline comparison pills. Example: ["$50K-$300K build cost", "6-12 month timeline", "80% failure rate", "Ongoing maintenance"]
-DO NOT mention VoiceAI Connect in the caption. This is a VALUE post — teach the lesson.`,
+    diy_trap: `THIS POST: Why building your own AI voice tool is almost always the wrong move
+TARGET: Agency owner thinking about hiring developers to build custom AI
+HEADLINE TYPE: A cost, a timeframe, or a failure framing. Be honest — don't invent stats. Use ranges like "$50K-$300K" or "6-12 Months" or "Most Never Ship." Don't cite specific percentages unless you can verify them.
+SUBTEXT: One sentence about why most custom builds fail — scope creep, maintenance, or never reaching production.
+CAPTION MUST OPEN WITH A STORY: "${scenario}" — build the caption around this scenario. Tell what happened, what it cost (time or money), and the lesson. NO fabricated statistics. Only use numbers you can honestly stand behind.
+CAPTION STRUCTURE: Story → the real cost (be honest about ranges, not fake precision) → the alternative → value lesson, no pitch.
+ITEMS: 3-4 honest comparison points. Use ranges: ["$50K-$300K+ to build", "6-12 months minimum", "Ongoing dev costs forever", "Most custom builds never ship"]
+NEVER invent a precise statistic. "Most" is fine. "80.7%" is not unless you have the source.`,
 
-    revenue_ceiling: `THIS POST: The math on agency service delivery — hours are the bottleneck
-TARGET: The solo agency owner doing $15K-$30K/mo who's maxed on time
-HEADLINE: Must contain a COMPARISON with an arrow or "vs." Use: "2hrs → 0" or "$125/hr vs. Infinite" — show the contrast.
-SUBTEXT: "The service that doesn't cost you time" or similar. One line.
-CAPTION MUST START WITH: A question about hourly rate. First line examples: "What's your effective hourly rate on your best client?" or "Most agency owners have never calculated this number."
-CAPTION STRUCTURE: Ask the question → break down SEO/Ads/Web hourly math → reveal AI receptionist = 0 hours → let the math speak.
-ITEMS: 3-4 service rows with price + hours. Example: [{"title":"SEO Client","subtitle":"$1,500/mo — 12 hrs/mo = $125/hr"}, {"title":"Ads Client","subtitle":"$2,000/mo — 20 hrs/mo = $100/hr"}, {"title":"AI Receptionist Client","subtitle":"$297/mo — 0 hrs/mo"}]
-DO NOT mention VoiceAI Connect. Pure education about business model math.`,
+    revenue_ceiling: `THIS POST: The math on agency delivery hours — the bottleneck nobody talks about
+TARGET: Solo or small agency owner who's maxed on capacity
+HEADLINE TYPE: A comparison or contrast about time. "Hours In. Revenue Out." or "Your Ceiling Isn't Clients. It's Your Calendar."
+SUBTEXT: One line about delivery hours being the bottleneck.
+CAPTION MUST OPEN WITH A SCENARIO: "${scenario}" — use this as the hook. Calculate the effective hourly rate. Show the math honestly.
+CAPTION STRUCTURE: Scenario → break down actual hours per service type → reveal the one service that costs 0 hours → let the reader do the math.
+ITEMS: 3-4 real service comparisons with honest numbers: [{"title":"SEO Client","subtitle":"$1,500/mo — 10-15 hrs/mo delivery"}, {"title":"Ads Client","subtitle":"$2,000/mo — 15-20 hrs/mo management"}, {"title":"AI Receptionist Client","subtitle":"$200-400/mo — 0 hrs/mo delivery"}]
+This is education. No pitch. No brand mention.`,
 
-    funnel_gap: `THIS POST: The funnel step agencies ignore — the phone call between the ad and the booking
-TARGET: Google Ads agency owners who drive calls for clients
-HEADLINE: Must be "Step 2" or reference the gap. Use: "Step 2 Is Where They Lose" or "The Gap Nobody Owns"
-SUBTEXT: "Ad Click → Phone Rings → Booked Job. Which step is yours?" — must reference the 3-step funnel.
-CAPTION MUST START WITH: A direct statement about ads and calls. First line examples: "You're running great ads. Your client's phone is ringing." or "Google Ads is doing its job. The phone rings. Then what?"
-CAPTION STRUCTURE: Set up the funnel → identify the gap (the unanswered call) → quantify the waste → reframe the opportunity.
-ITEMS: Exactly 3 steps: [{"title":"Ad Click","subtitle":"Your ads are working. Someone searched, someone clicked."}, {"title":"Phone Rings","subtitle":"This is where the money is made or lost. Right here."}, {"title":"Booked Job","subtitle":"Call answered, lead captured, appointment set, client paid."}]
-Step 2 MUST be the highlighted one. This post is about REFRAMING — no product pitch.`,
+    funnel_gap: `THIS POST: The step in the lead funnel that agencies ignore
+TARGET: Google Ads agency owner who drives phone calls for clients
+HEADLINE TYPE: References "Step 2" or "the phone call" or "the gap." Something that names the missing piece.
+SUBTEXT: Must describe the 3-step funnel: Ad → Call → Booking.
+CAPTION MUST OPEN WITH A CLIENT SCENARIO: "${scenario}" — describe what happens when the phone rings and nobody answers. Be specific to the industry.
+CAPTION STRUCTURE: Client scenario → the 3 steps → identify the gap (the unanswered call) → quantify what's wasted → reframe the opportunity.
+ITEMS: Exactly 3 funnel steps: [{"title":"Ad Click","subtitle":"The ad worked. Someone searched, someone clicked."}, {"title":"Phone Rings","subtitle":"This is where revenue is made or lost."}, {"title":"Booked Job","subtitle":"Call answered, appointment set, job confirmed."}]
+No pitch. Pure funnel education.`,
 
-    differentiation: `THIS POST: Positioning statement — what VoiceAI Connect is NOT
-TARGET: The agency owner who's been burned by too many SaaS tools promising everything
-HEADLINE: Must contain "Not" — Use: "Not Another CRM." (with the period). Nothing else. Short and definitive.
-SUBTEXT: Must be "Purpose-Built AI Call Layer" — those exact words or close to them.
-CAPTION MUST START WITH: A frustrated observation. First line examples: "How many dashboards do you log into every day?" or "Your clients don't need another tool they'll never open."
-CAPTION STRUCTURE: Name the problem (tool fatigue) → list what this ISN'T → explain what it IS (one job, done well) → no CTA, just clarity.
-ITEMS: 3-4 "not" statements as simple strings. Example: ["Not a GoHighLevel replacement", "Not a marketing suite", "Not another tool to learn", "Not a chatbot"]
-This is a POSITIONING post. The tone is definitive, calm, confident. No selling.`,
+    differentiation: `THIS POST: What this is NOT — positioning against tool fatigue
+TARGET: Agency owner overwhelmed by SaaS tools
+HEADLINE TYPE: Must contain "Not" — something definitive like "Not Another CRM." or "Not Another Dashboard."
+SUBTEXT: "Purpose-Built AI Call Layer" or similar — names what it IS after saying what it's NOT.
+CAPTION MUST OPEN WITH A FRUSTRATION: "${scenario}" — channel the real frustration of too many tools.
+CAPTION STRUCTURE: Name the problem (tool overload) → list what this isn't → explain the one thing it does → no hard sell, just positioning clarity.
+ITEMS: 3-4 "not" statements: ["Not a CRM replacement", "Not a marketing suite", "Not another tool to learn", "Not a chatbot"]`,
 
-    speed_advantage: `THIS POST: Speed comparison — 60 seconds vs. 2 weeks to get a client live
-TARGET: The agency owner frustrated with technical setup overhead per client
-HEADLINE: Must contain a TIME contrast. Use: "60 Seconds vs. 2 Weeks" — the speed gap IS the headline.
-SUBTEXT: "Same result. Different century." or "One of these is automated." — one punchy line.
-CAPTION MUST START WITH: A frustration about onboarding. First line examples: "Every new client used to take me two hours to set up." or "A2P registration. If you know, you know."
-CAPTION STRUCTURE: Describe the old painful process → contrast with automated → explain why this matters at scale (client 30 = same effort as client 1).
-ITEMS: Must be comparison pairs. Problems first, then solutions. Example: [{"title":"A2P registration","subtitle":"2-week wait per client"}, {"title":"Manual config","subtitle":"Hour per client minimum"}, {"title":"Automated provisioning","subtitle":"60 seconds. Done."}, {"title":"Self-serve dashboard","subtitle":"Client manages themselves."}]
-First 2 items = problems. Last 2 = solutions. Red/green visual.`,
+    speed_advantage: `THIS POST: Speed comparison — automated vs. manual client setup
+TARGET: Agency owner tired of technical overhead per new client
+HEADLINE TYPE: A time contrast — "60 Seconds vs. 2 Weeks" or "Automated vs. Manual" or "Client Live in Under a Minute."
+SUBTEXT: One punchy line about the difference.
+CAPTION MUST OPEN WITH A PAIN POINT: "${scenario}" — describe the old slow process.
+CAPTION STRUCTURE: The old painful way → what each step cost in time → the automated alternative → why this matters at scale (client 30 = same as client 1).
+ITEMS: Comparison pairs — problems then solutions: [{"title":"A2P registration","subtitle":"Days to weeks per client"}, {"title":"Manual configuration","subtitle":"30-60 minutes per client"}, {"title":"Automated provisioning","subtitle":"Under 60 seconds"}, {"title":"Self-serve dashboard","subtitle":"Client manages themselves"}]`,
 
-    white_label: `THIS POST: Ownership — your brand on every screen, not ours
-TARGET: The entrepreneur who wants to look like a tech company, not a reseller
-HEADLINE: Must contain "Your" or "Own" — Use: "Your Brand. Every Screen." or "Stop Reselling. Start Owning."
-SUBTEXT: "Clients see your company — not ours." — one line about perception.
-CAPTION MUST START WITH: A statement about brand perception. First line examples: "There's a difference between reselling a product and owning a product." or "Your clients should never know we exist."
-CAPTION STRUCTURE: Explain the perception gap between reseller and owner → list what's white-labeled → explain how this changes pricing power → soft mention of the platform at the end only.
-ITEMS: 4 ownership features as numbered cards. Example: [{"title":"Your Custom Domain","subtitle":"clients.youragency.com"}, {"title":"Your Logo Everywhere","subtitle":"Dashboard, emails, onboarding"}, {"title":"Your Pricing Structure","subtitle":"Set margins that match a tech provider"}, {"title":"Your Client Portal","subtitle":"They log in and see your company"}]
-This is an ASK post — okay to mention VoiceAI Connect at the end of the caption.`,
+    white_label: `THIS POST: Owning the product vs. reselling it — brand perception and pricing power
+TARGET: Entrepreneur who wants to look like a tech company
+HEADLINE TYPE: Must reference ownership — "Your Brand" or "Stop Reselling" or "They See Your Company."
+SUBTEXT: One line about what clients see when they log in.
+CAPTION MUST OPEN WITH A REALIZATION: "${scenario}" — the moment you understand the difference between reselling and owning.
+CAPTION STRUCTURE: The perception gap → what white-label actually means → how it changes pricing power → mention VoiceAI Connect (this is an ASK post).
+ITEMS: 4 ownership features: [{"title":"Your Custom Domain","subtitle":"clients.youragency.com"}, {"title":"Your Logo Everywhere","subtitle":"Dashboard, emails, client portal"}, {"title":"Your Pricing","subtitle":"Set margins like a tech company"}, {"title":"Your Relationship","subtitle":"Clients see you, not us"}]`,
 
-    missed_call_pain: `THIS POST: The visceral missed call problem — make it feel real
-TARGET: Home service marketers whose clients are plumbers, HVAC, roofers
-HEADLINE: Must be a TIMESTAMP pattern. Use: "7:02 PM. 7:14 PM. 7:31 PM." or "Missed. Missed. Missed." — raw and urgent.
-SUBTEXT: "This happened to three of your clients last night." — accusatory, personal.
-CAPTION MUST START WITH: A specific scenario. First line examples: "A pipe burst in Marietta at 7 PM last Tuesday." or "Last Saturday at 6 AM, a homeowner's AC died."
-CAPTION STRUCTURE: Tell ONE specific missed-call scenario → quantify the loss → explain that 85% won't leave voicemail → the call goes to the competitor → no pitch, just the reality.
-ITEMS: 4-6 mock call log entries as checklist strings. Example: ["Missed Call — 7:02 PM", "Missed Call — 7:14 PM", "Missed Call — 7:31 PM", "Missed Call — 8:45 PM", "Voicemail (empty) — 9:12 PM"]
-DO NOT pitch. This is pure pain-point education. Value post.`,
+    missed_call_pain: `THIS POST: Make the missed call problem visceral and real
+TARGET: Home service marketer with plumber/HVAC/roofer clients
+HEADLINE TYPE: Timestamps or "Missed" repeated — make it look like a call log. "7:02 PM. 7:14 PM. 7:31 PM." or "Missed. Missed. Missed."
+SUBTEXT: "This happened to your clients last night." — direct and personal.
+CAPTION MUST OPEN WITH A SPECIFIC SCENARIO: "${scenario}" — paint the picture. One real emergency, one real business, one real missed opportunity.
+CAPTION STRUCTURE: The scenario → how many calls were missed → where those callers went (competitor) → the cost of each missed call → no pitch, just the reality.
+ITEMS: Mock call log entries: ["Missed Call — 7:02 PM", "Missed Call — 7:14 PM", "Missed Call — 7:31 PM", "Voicemail (empty) — 8:45 PM"]
+NEVER fabricate statistics about call answer rates. Just tell the story.`,
 
-    project_trap: `THIS POST: The economics of project-based vs. recurring — show the hourly rate trap
-TARGET: The agency owner selling websites and SEO who wants to break the feast/famine cycle
-HEADLINE: Must contain "$" and "/hr" — Use: "$125/hr → Infinite" or "Run Your Numbers" — it's about the math.
-SUBTEXT: "Which service actually scales?" — one question.
-CAPTION MUST START WITH: A confession or realization. First line examples: "I used to think my agency was profitable. Then I calculated my actual hourly rate." or "Website project: $5K. Time spent: 60 hours. Effective rate: $83/hr."
-CAPTION STRUCTURE: Confess the hourly rate reality → break down each service type → reveal AI receptionist as infinite ROI → frame the strategic shift from services to products.
-ITEMS: 4 service comparison cards. Example: [{"title":"Website Client","subtitle":"$3K one-time — 40 hrs — then nothing"}, {"title":"SEO Client","subtitle":"$1,500/mo — 12 hrs/mo — $125/hr effective"}, {"title":"Ads Client","subtitle":"$2,000/mo — 20 hrs/mo — $100/hr effective"}, {"title":"AI Receptionist Client","subtitle":"$297/mo — 0 hrs/mo — infinite"}]
-DO NOT pitch. This is a founder sharing a business insight.`,
+    project_trap: `THIS POST: The economics of project work vs. recurring revenue
+TARGET: Agency owner selling websites/SEO who wants to escape feast-famine
+HEADLINE TYPE: References hourly rate or the comparison — "Your Real Hourly Rate" or "Which Service Scales?" 
+SUBTEXT: One question about which model actually works.
+CAPTION MUST OPEN WITH A REALIZATION: "${scenario}" — the moment the math doesn't add up.
+CAPTION STRUCTURE: The realization → honest breakdown of hours per service → the one service that costs 0 hours → framing the shift from services to products.
+ITEMS: Service comparisons with honest numbers: [{"title":"Website Project","subtitle":"$3-5K one-time — 30-50 hours — then nothing"}, {"title":"SEO Retainer","subtitle":"$1-2K/mo — 10-15 hrs/mo delivery"}, {"title":"Ads Management","subtitle":"$1.5-3K/mo — 15-25 hrs/mo"}, {"title":"AI Receptionist","subtitle":"$200-400/mo — 0 hrs delivery"}]`,
 
-    competitor_fomo: `THIS POST: Competitive pressure — other agencies are already offering this
-TARGET: The agency owner who's heard about AI but hasn't acted yet
-HEADLINE: Must reference "competitor" or "already" — Use: "Their Competitor Already Has One" or "While You Wait, They Ship"
-SUBTEXT: "How long before your clients notice?" — one line of urgency.
-CAPTION MUST START WITH: A third-person observation. First line examples: "I talked to an agency owner last week who just lost a client." or "Saw a post in a marketing group yesterday that made me think."
-CAPTION STRUCTURE: Tell the story of an agency that moved first → what their clients got → what the slow agency's clients are still dealing with → the window is closing → ask a question at the end.
-ITEMS: Before/after comparison. Example: [{"title":"Without AI: Missed calls, voicemail, lost revenue","subtitle":""}, {"title":"Without AI: Client complaints about response time","subtitle":""}, {"title":"With AI: Every call answered, every job booked","subtitle":""}, {"title":"With AI: Clients think they hired a receptionist","subtitle":""}]
-This is an ASK post — can mention the platform at the very end.`,
+    competitor_fomo: `THIS POST: Other agencies are already offering AI — competitive urgency
+TARGET: Agency owner who's been watching but hasn't acted
+HEADLINE TYPE: References competitors or timing — "They Already Have One" or "While You Wait" or "The Window."
+SUBTEXT: "How long before your clients notice?" — one urgent question.
+CAPTION MUST OPEN WITH AN OBSERVATION: "${scenario}" — something you saw or heard that triggered this post.
+CAPTION STRUCTURE: What you observed → what the fast-moving agency did → what their clients got → what the slow agency's clients are still dealing with → ask a question. Mention VoiceAI Connect at the very end (ASK post).
+ITEMS: Before/after: [{"title":"Without AI","subtitle":"Missed calls, voicemail, lost jobs"}, {"title":"Without AI","subtitle":"Clients wonder why competitors respond faster"}, {"title":"With AI","subtitle":"Every call answered, every lead captured"}, {"title":"With AI","subtitle":"Clients think you hired them a receptionist"}]`,
 
-    audience_filter: `THIS POST: Audience qualifier — who this is specifically for
-TARGET: All ICP segments at once — this post filters the right people in
-HEADLINE: Must start with "Built For" — Use: "Built For:" with a colon. Nothing after it in the headline. The list is in the items.
-SUBTEXT: "If this sounds like your agency, keep reading." — invitational, not salesy.
-CAPTION MUST START WITH: A direct filter statement. First line examples: "This isn't for everyone. And that's the point." or "If your clients don't get phone calls, this isn't for you."
-CAPTION STRUCTURE: Say who it's NOT for first → then who it IS for (4 types) → explain why phone-based businesses specifically → end with "If your clients depend on the phone to make money, this is the easiest upsell you'll ever close."
-ITEMS: Exactly 4 audience segments with descriptions. Example: [{"title":"Google Ads Agencies","subtitle":"You drive calls. Your clients don't answer them all."}, {"title":"Home Service Marketers","subtitle":"HVAC, plumbing, roofing — call-heavy, after-hours demand."}, {"title":"Local Lead Gen Companies","subtitle":"You sell leads. Now sell what happens when the phone rings."}, {"title":"Call-Heavy Accounts","subtitle":"Any client where inbound calls = revenue and missed calls = lost money."}]
-This is an ASK post — mention VoiceAI Connect by name at the end.`,
+    audience_filter: `THIS POST: Who this is specifically built for — qualify the audience
+TARGET: All ICP segments — this post is a filter
+HEADLINE TYPE: Must start with "Built For" — the headline is "Built For:" and the list is in the items.
+SUBTEXT: "If this sounds like your agency, keep reading."
+CAPTION MUST OPEN WITH A FILTER: "This isn't for everyone." or "If your clients don't get phone calls, this isn't for you." — start by disqualifying.
+USE THIS SCENARIO FOR COLOR: "${scenario}"
+CAPTION STRUCTURE: Who it's NOT for → who it IS for (4 types) → why phone-based businesses specifically → end with "If your clients depend on the phone to make money, this is the easiest upsell you'll ever close." Mention VoiceAI Connect by name (ASK post).
+ITEMS: 4 audience segments: [{"title":"Google Ads Agencies","subtitle":"You drive calls. Your clients miss half of them."}, {"title":"Home Service Marketers","subtitle":"HVAC, plumbing, roofing — call-heavy, after-hours demand."}, {"title":"Local Lead Gen Companies","subtitle":"You sell leads. Now sell what happens after the phone rings."}, {"title":"Call-Heavy Accounts","subtitle":"Any client where phone calls equal revenue."}]`,
   };
 
   return guides[category] || '';
