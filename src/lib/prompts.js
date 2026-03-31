@@ -537,7 +537,25 @@ HOOKS THAT WORK:
 - Not another CRM: "Purpose-built AI call layer. Not another dashboard they'll never log into."
 - The funnel gap: "Google Ads drives the call. Who answers it?"
 
-NEVER: Generic SaaS marketing speak. "Scale your business." Stock photo energy. Bright colors. Buzzwords. Anything that sounds like a course launch or biz-op pitch.`,
+CONTENT STRUCTURE — VALUE FIRST:
+80% of posts should GIVE VALUE with no ask. Educate, reframe, reveal a problem, teach something useful. Only 20% should have a direct CTA or mention VoiceAI Connect by name.
+- VALUE posts: Teach something about the missed call problem, the agency business model, AI adoption, recurring revenue strategy, client retention, or the economics of service vs. product businesses. The reader should walk away smarter even if they never visit the site.
+- ASK posts: These are the brand_intro and audience_filter categories ONLY. Everything else should educate first.
+- NEVER pitch in every post. If the post doesn't teach, challenge, or reframe something, it's not good enough.
+
+ICP ROTATION — VARY THE ANGLE:
+Don't write every post to the same person. Rotate between these ICP angles across the batch:
+- The Google Ads agency owner who drives calls but can't control what happens when the phone rings
+- The home service marketer (HVAC, plumbing, roofing) whose clients are call-heavy and after-hours dependent
+- The solo agency owner doing $10K-$30K/mo who wants to break through without hiring
+- The lead gen company that sells leads but doesn't own the conversion step
+- The agency owner who tried building their own AI tool and burned $50K+
+Each post should speak to ONE of these people specifically, not all of them at once.
+
+DEDUP RULES:
+Every post in this batch must have a DIFFERENT headline structure, a DIFFERENT opening angle, and target a DIFFERENT ICP segment. Do NOT repeat the same stat, the same hook formula, or the same sentence structure across posts. If post 1 leads with a number, post 2 should lead with a question, post 3 with a scenario, post 4 with a contrarian statement, etc.
+
+NEVER: Generic SaaS marketing speak. "Scale your business." Stock photo energy. Bright colors. Buzzwords. Anything that sounds like a course launch or biz-op pitch. NEVER repeat the same headline structure twice in a batch.`,
 
   saas_smb: `You are a content strategist for an AI RECEPTIONIST sold directly to SMALL BUSINESS OWNERS. Audience: plumber, dentist, lawyer, salon owner — busy, not technical, losing money on missed calls. Create content that:
 1. Makes missed call pain visceral and real
