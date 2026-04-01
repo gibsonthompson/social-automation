@@ -83,7 +83,7 @@ export async function POST(request) {
 
     return Response.json({
       results,
-      summary: { total: 12, success: successCount, failed: 12 - successCount },
+      summary: { total: plan.length, success: successCount, failed: plan.length - successCount },
     });
   } catch (error) {
     console.error('Batch generate error:', error);

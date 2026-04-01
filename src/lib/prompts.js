@@ -147,8 +147,9 @@ export function buildBatchPlan(business, platform = 'instagram') {
   const cats = CONTENT_CATEGORIES[industry] || CONTENT_CATEGORIES.consulting;
   const isLinkedIn = platform === 'linkedin';
 
-  // LinkedIn: 10 posts, Instagram: 12
-  const postCount = isLinkedIn ? 10 : 12;
+  // LinkedIn: 10 posts, saas_tech: exactly 10 (one per pain point), others: 12
+  const isSaasTech = industry === 'saas_tech';
+  const postCount = (isLinkedIn || isSaasTech) ? 10 : 12;
 
   // Filter templates to only enabled post types for this business
   const enabledTypes = business.design_system?.post_types?.filter(t => t.enabled).map(t => t.id) || [];
@@ -476,6 +477,8 @@ function buildSaasTechCategoryGuide(category, template) {
     diy_trap: `THIS POST: Why building your own AI voice tool is almost always the wrong move
 TARGET: Agency owner thinking about hiring developers to build custom AI
 HEADLINE TYPE: A cost, a timeframe, or a failure framing. Be honest — don't invent stats. Use ranges like "$50K-$300K" or "6-12 Months" or "Most Never Ship." Don't cite specific percentages unless you can verify them.
+
+HEADLINE MAX: 3 WORDS. Renders at 200px. Short only.
 SUBTEXT: One sentence about why most custom builds fail — scope creep, maintenance, or never reaching production.
 CAPTION MUST OPEN WITH A STORY: "${scenario}" — build the caption around this scenario. Tell what happened, what it cost (time or money), and the lesson. NO fabricated statistics. Only use numbers you can honestly stand behind.
 CAPTION STRUCTURE: Story → the real cost (be honest about ranges, not fake precision) → the alternative → value lesson, no pitch.
@@ -485,6 +488,8 @@ NEVER invent a precise statistic. "Most" is fine. "80.7%" is not unless you have
     revenue_ceiling: `THIS POST: The math on agency delivery hours — the bottleneck nobody talks about
 TARGET: Solo or small agency owner who's maxed on capacity
 HEADLINE TYPE: A comparison or contrast about time. "Hours In. Revenue Out." or "Your Ceiling Isn't Clients. It's Your Calendar."
+
+HEADLINE MAX: 6 WORDS. Renders at 56px.
 SUBTEXT: One line about delivery hours being the bottleneck.
 CAPTION MUST OPEN WITH A SCENARIO: "${scenario}" — use this as the hook. Calculate the effective hourly rate. Show the math honestly.
 CAPTION STRUCTURE: Scenario → break down actual hours per service type → reveal the one service that costs 0 hours → let the reader do the math.
@@ -494,6 +499,8 @@ This is education. No pitch. No brand mention.`,
     funnel_gap: `THIS POST: The step in the lead funnel that agencies ignore
 TARGET: Google Ads agency owner who drives phone calls for clients
 HEADLINE TYPE: References "Step 2" or "the phone call" or "the gap." Something that names the missing piece.
+
+HEADLINE MAX: 6 WORDS. Renders at 52px centered.
 SUBTEXT: Must describe the 3-step funnel: Ad → Call → Booking.
 CAPTION MUST OPEN WITH A CLIENT SCENARIO: "${scenario}" — describe what happens when the phone rings and nobody answers. Be specific to the industry.
 CAPTION STRUCTURE: Client scenario → the 3 steps → identify the gap (the unanswered call) → quantify what's wasted → reframe the opportunity.
@@ -503,6 +510,8 @@ No pitch. Pure funnel education.`,
     differentiation: `THIS POST: What this is NOT — positioning against tool fatigue
 TARGET: Agency owner overwhelmed by SaaS tools
 HEADLINE TYPE: Must contain "Not" — something definitive like "Not Another CRM." or "Not Another Dashboard."
+
+HEADLINE MAX: 3 WORDS. Renders at 88px. Do not exceed 4 words.
 SUBTEXT: "Purpose-Built AI Call Layer" or similar — names what it IS after saying what it's NOT.
 CAPTION MUST OPEN WITH A FRUSTRATION: "${scenario}" — channel the real frustration of too many tools.
 CAPTION STRUCTURE: Name the problem (tool overload) → list what this isn't → explain the one thing it does → no hard sell, just positioning clarity.
@@ -511,6 +520,8 @@ ITEMS: 3-4 "not" statements: ["Not a CRM replacement", "Not a marketing suite", 
     speed_advantage: `THIS POST: Speed comparison — automated vs. manual client setup
 TARGET: Agency owner tired of technical overhead per new client
 HEADLINE TYPE: A time contrast — "60 Seconds vs. 2 Weeks" or "Automated vs. Manual" or "Client Live in Under a Minute."
+
+HEADLINE MAX: 5 WORDS. Renders at 56px.
 SUBTEXT: One punchy line about the difference.
 CAPTION MUST OPEN WITH A PAIN POINT: "${scenario}" — describe the old slow process.
 CAPTION STRUCTURE: The old painful way → what each step cost in time → the automated alternative → why this matters at scale (client 30 = same as client 1).
@@ -519,6 +530,8 @@ ITEMS: Comparison pairs — problems then solutions: [{"title":"A2P registration
     white_label: `THIS POST: Owning the product vs. reselling it — brand perception and pricing power
 TARGET: Entrepreneur who wants to look like a tech company
 HEADLINE TYPE: Must reference ownership — "Your Brand" or "Stop Reselling" or "They See Your Company."
+
+HEADLINE MAX: 5 WORDS. Renders at 72px.
 SUBTEXT: One line about what clients see when they log in.
 CAPTION MUST OPEN WITH A REALIZATION: "${scenario}" — the moment you understand the difference between reselling and owning.
 CAPTION STRUCTURE: The perception gap → what white-label actually means → how it changes pricing power → mention VoiceAI Connect (this is an ASK post).
@@ -527,6 +540,8 @@ ITEMS: 4 ownership features: [{"title":"Your Custom Domain","subtitle":"clients.
     missed_call_pain: `THIS POST: Make the missed call problem visceral and real
 TARGET: Home service marketer with plumber/HVAC/roofer clients
 HEADLINE TYPE: Timestamps or "Missed" repeated — make it look like a call log. "7:02 PM. 7:14 PM. 7:31 PM." or "Missed. Missed. Missed."
+
+HEADLINE MAX: 5 WORDS. Renders at 56px on emerald background.
 SUBTEXT: "This happened to your clients last night." — direct and personal.
 CAPTION MUST OPEN WITH A SPECIFIC SCENARIO: "${scenario}" — paint the picture. One real emergency, one real business, one real missed opportunity.
 CAPTION STRUCTURE: The scenario → how many calls were missed → where those callers went (competitor) → the cost of each missed call → no pitch, just the reality.
@@ -536,6 +551,8 @@ NEVER fabricate statistics about call answer rates. Just tell the story.`,
     project_trap: `THIS POST: The economics of project work vs. recurring revenue
 TARGET: Agency owner selling websites/SEO who wants to escape feast-famine
 HEADLINE TYPE: References hourly rate or the comparison — "Your Real Hourly Rate" or "Which Service Scales?" 
+
+HEADLINE MAX: 6 WORDS. Renders at 52px.
 SUBTEXT: One question about which model actually works.
 CAPTION MUST OPEN WITH A REALIZATION: "${scenario}" — the moment the math doesn't add up.
 CAPTION STRUCTURE: The realization → honest breakdown of hours per service → the one service that costs 0 hours → framing the shift from services to products.
@@ -544,6 +561,8 @@ ITEMS: Service comparisons with honest numbers: [{"title":"Website Project","sub
     competitor_fomo: `THIS POST: Other agencies are already offering AI — competitive urgency
 TARGET: Agency owner who's been watching but hasn't acted
 HEADLINE TYPE: References competitors or timing — "They Already Have One" or "While You Wait" or "The Window."
+
+HEADLINE MAX: 5 WORDS. Renders at 68px centered.
 SUBTEXT: "How long before your clients notice?" — one urgent question.
 CAPTION MUST OPEN WITH AN OBSERVATION: "${scenario}" — something you saw or heard that triggered this post.
 CAPTION STRUCTURE: What you observed → what the fast-moving agency did → what their clients got → what the slow agency's clients are still dealing with → ask a question. Mention VoiceAI Connect at the very end (ASK post).
@@ -552,6 +571,8 @@ ITEMS: Before/after: [{"title":"Without AI","subtitle":"Missed calls, voicemail,
     audience_filter: `THIS POST: Who this is specifically built for — qualify the audience
 TARGET: All ICP segments — this post is a filter
 HEADLINE TYPE: Must start with "Built For" — the headline is "Built For:" and the list is in the items.
+
+HEADLINE MAX: 2 WORDS. Just 'Built For:' — list is in items.
 SUBTEXT: "If this sounds like your agency, keep reading."
 CAPTION MUST OPEN WITH A FILTER: "This isn't for everyone." or "If your clients don't get phone calls, this isn't for you." — start by disqualifying.
 USE THIS SCENARIO FOR COLOR: "${scenario}"
