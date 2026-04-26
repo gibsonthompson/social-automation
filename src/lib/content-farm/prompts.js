@@ -494,7 +494,7 @@ function extractContentAttributes(content, planItem, season) {
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════════
 
-module.exports = {
+export {
   getSeasonContext,
   buildBatchPlan,
   buildResearchPrompt,
