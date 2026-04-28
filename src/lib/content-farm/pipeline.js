@@ -109,7 +109,7 @@ export async function planDailyContent() {
           business_id: business.id,
           type: schedule.types[i] || 'static_image',
           status: 'planned',
-          platform: 'instagram',
+          platform: business.publish_to || 'both',
           scheduled_for: scheduledFor.toISOString(),
           batch_id: batchId,
           ai_content: {
