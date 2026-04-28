@@ -109,7 +109,7 @@ export async function planDailyContent() {
           business_id: business.id,
           type: schedule.types[i] || 'static_image',
           status: 'planned',
-          platform: business.publish_to || 'both',
+          platform: 'instagram',
           scheduled_for: scheduledFor.toISOString(),
           batch_id: batchId,
           ai_content: {
@@ -408,15 +408,58 @@ export async function processNextPost() {
       content_attributes: attributes,
     });
 
+    // ── 10. Auto-publish if approved and render exists ──
+    let publishResult = null;
+    if (finalStatus === 'approved' && renderUrl) {
+      console.log(`[PROCESS] Auto-publishing "${content.headline}"...`);
+      try {
+        await supabase.from('cf_content_queue')
+          .update({ status: 'posting' })
+          .eq('id', nextPost.id);
+
+        // Build the post object publishPost() expects
+        const postForPublish = {
+          ...nextPost,
+          render_output_url: renderUrl,
+          caption: content.caption,
+          hashtags: content.hashtags,
+          ai_content: content,
+          platform: nextPost.platform || business.publish_to || 'both',
+        };
+
+        publishResult = await publishPost(postForPublish);
+
+        await supabase.from('cf_content_queue').update({
+          status: 'posted',
+          posted_at: new Date().toISOString(),
+          platform_post_id: publishResult.platform_post_id,
+        }).eq('id', nextPost.id);
+
+        await supabase.from('cf_content_history')
+          .update({ posted_at: new Date().toISOString() })
+          .eq('queue_id', nextPost.id);
+
+        console.log(`[PROCESS] Published: ${publishResult.platform_post_id}`);
+      } catch (pubErr) {
+        console.error(`[PROCESS] Auto-publish failed: ${pubErr.message}`);
+        await supabase.from('cf_content_queue').update({
+          status: 'failed',
+          error_log: `Auto-publish failed: ${pubErr.message}`,
+        }).eq('id', nextPost.id);
+      }
+    }
+
     const duration = Date.now() - startTime;
-    console.log(`[PROCESS] Done: "${content.headline}" → ${finalStatus} (${duration}ms)`);
+    const actualStatus = publishResult ? 'posted' : finalStatus;
+    console.log(`[PROCESS] Done: "${content.headline}" → ${actualStatus} (${duration}ms)`);
 
     await logCron('process_post', business.id, 'completed', 1, null, duration, {
       headline: content.headline,
       template: planData.template,
       category: planData.category,
-      status: finalStatus,
+      status: actualStatus,
       has_render: !!renderUrl,
+      published: !!publishResult,
     });
 
     return {
@@ -426,7 +469,7 @@ export async function processNextPost() {
       headline: content.headline,
       template: planData.template,
       category: planData.category,
-      status: finalStatus,
+      status: actualStatus,
       renderUrl,
       durationMs: duration,
     };

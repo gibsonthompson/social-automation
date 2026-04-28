@@ -177,6 +177,7 @@ export async function publishPost(post) {
       results.instagram = await postToInstagram(post);
     } catch (e) {
       results.instagram_error = e.message;
+      console.error(`[PUBLISH] Instagram failed: ${e.message}`);
     }
   }
 
@@ -185,12 +186,20 @@ export async function publishPost(post) {
       results.facebook = await postToFacebook(post);
     } catch (e) {
       results.facebook_error = e.message;
+      console.error(`[PUBLISH] Facebook failed: ${e.message}`);
     }
   }
 
-  // Return the primary platform post ID
+  const platform_post_id = results.instagram || results.facebook || null;
+
+  // If ALL platforms failed, throw so the caller knows
+  if (!platform_post_id) {
+    const errors = [results.instagram_error, results.facebook_error].filter(Boolean).join('; ');
+    throw new Error(`All platforms failed: ${errors || 'No platforms configured'}`);
+  }
+
   return {
-    platform_post_id: results.instagram || results.facebook || null,
+    platform_post_id,
     details: results,
   };
 }
