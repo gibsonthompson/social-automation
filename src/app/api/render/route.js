@@ -1,4 +1,4 @@
-import { renderTemplate } from '@/lib/unified-templates';
+import { renderTemplate } from '@/lib/html-templates';
 /**
  * NODE 4: Image Composition
  *
