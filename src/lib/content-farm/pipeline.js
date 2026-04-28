@@ -348,14 +348,19 @@ export async function processNextPost() {
 
       const renderData = await renderResp.json();
 
-      if (renderData.image) {
-        // Upload to Supabase Storage
+      if (renderData.url) {
+        // DO backend saved the file and returned a public URL
+        // Meta can fetch from this URL (no Cloudflare blocking)
+        renderUrl = renderData.url;
+        console.log(`[PROCESS] Rendered → ${renderUrl}`);
+      } else if (renderData.image) {
+        // Fallback: DO returned base64 but no URL (shouldn't happen, but safe)
+        console.warn(`[PROCESS] No URL returned, falling back to Supabase upload`);
         const buffer = Buffer.from(
           renderData.image.replace(/^data:image\/\w+;base64,/, ''),
           'base64'
         );
         const storagePath = `${business.slug}/${nextPost.id}.png`;
-
         const { error: uploadErr } = await supabase.storage
           .from('content-renders')
           .upload(storagePath, buffer, {
@@ -363,18 +368,14 @@ export async function processNextPost() {
             cacheControl: '31536000',
             upsert: true,
           });
-
         if (!uploadErr) {
           const { data: urlData } = supabase.storage
             .from('content-renders')
             .getPublicUrl(storagePath);
           renderUrl = urlData?.publicUrl || null;
-          console.log(`[PROCESS] Rendered + uploaded: ${renderUrl}`);
-        } else {
-          console.error(`[PROCESS] Upload failed: ${uploadErr.message}`);
         }
       } else {
-        console.error(`[PROCESS] Render returned no image:`, renderData.error);
+        console.error(`[PROCESS] Render failed:`, renderData.error);
       }
     }
 
