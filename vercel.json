@@ -5,34 +5,34 @@
       "memory": 1024
     },
     "src/app/api/render/route.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "src/app/api/cron/plan/route.js": {
       "maxDuration": 30,
-      "memory": 1024
-    },
-    "src/app/api/cron/generate/route.js": {
-      "maxDuration": 300,
-      "memory": 1024
-    },
-    "src/app/api/cron/post/route.js": {
-      "maxDuration": 120,
       "memory": 512
     },
+    "src/app/api/cron/process/route.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
     "src/app/api/cron/metrics/route.js": {
-      "maxDuration": 120,
+      "maxDuration": 60,
       "memory": 512
     },
     "src/app/api/cron/analyze/route.js": {
-      "maxDuration": 300,
+      "maxDuration": 60,
       "memory": 1024
+    },
+    "src/app/api/queue/route.js": {
+      "maxDuration": 60,
+      "memory": 512
     }
   },
   "crons": [
     {
-      "path": "/api/cron/generate",
+      "path": "/api/cron/plan",
       "schedule": "0 11 * * *"
-    },
-    {
-      "path": "/api/cron/post",
-      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/metrics",

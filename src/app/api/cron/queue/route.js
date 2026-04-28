@@ -1,20 +1,13 @@
 /**
- * Content Farm — Queue Management API
- * Path: src/app/api/content-farm/queue/route.js
- *
- * GET  /api/content-farm/queue?status=review&business_id=...&limit=20
- * POST /api/content-farm/queue  { id, action: 'approve'|'reject', notes }
+ * Queue Management API
+ * GET  — List queue items (filter by status, business)
+ * POST — Approve (+ publish) or Reject (+ save feedback)
  */
-
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabase, approveAndPublish, rejectPost } from '@/lib/content-farm/pipeline';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+export const maxDuration = 60;
 
-// GET — List queue items
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
@@ -32,11 +25,9 @@ export async function GET(request) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
   return NextResponse.json({ items: data, count: data?.length || 0 });
 }
 
-// POST — Approve or reject a post
 export async function POST(request) {
   const { id, action, notes } = await request.json();
 
@@ -44,35 +35,15 @@ export async function POST(request) {
     return NextResponse.json({ error: 'id and action (approve|reject) required' }, { status: 400 });
   }
 
-  const status = action === 'approve' ? 'approved' : 'rejected';
-
-  const { error } = await supabase
-    .from('cf_content_queue')
-    .update({ status, reviewer_notes: notes || null })
-    .eq('id', id);
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // If rejecting, save feedback for AI learning
-  if (action === 'reject') {
-    const { data: post } = await supabase
-      .from('cf_content_queue')
-      .select('business_id, ai_content, content_attributes')
-      .eq('id', id)
-      .single();
-
-    if (post) {
-      await supabase.from('cf_content_feedback').insert({
-        business_id: post.business_id,
-        queue_id: id,
-        headline: post.ai_content?.headline,
-        content_type: post.content_attributes?.topic_category,
-        template_name: post.ai_content?.template,
-        rating: 'bad',
-        reason: notes || 'Manually rejected',
-      });
+  try {
+    if (action === 'approve') {
+      const result = await approveAndPublish(id);
+      return NextResponse.json(result);
+    } else {
+      const result = await rejectPost(id, notes);
+      return NextResponse.json(result);
     }
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  return NextResponse.json({ id, status });
 }
