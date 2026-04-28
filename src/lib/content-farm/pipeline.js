@@ -34,6 +34,18 @@ const anthropic = new Anthropic({
 
 export { supabase };
 
+// ── Timezone helper ─────────────────────────────────────────────
+
+function getTimezoneOffset(timeZone, date) {
+  // Returns the offset in minutes to convert local time to UTC
+  // e.g., America/New_York during EDT returns 240 (4 hours ahead)
+  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
+  const localStr = date.toLocaleString('en-US', { timeZone });
+  const utcDate = new Date(utcStr);
+  const localDate = new Date(localStr);
+  return (utcDate - localDate) / 60000;
+}
+
 
 // ── Logging ─────────────────────────────────────────────────────
 
@@ -96,10 +108,18 @@ export async function planDailyContent() {
     for (let i = 0; i < plan.length; i++) {
       const entry = plan[i];
 
-      // Calculate scheduled posting time
+      // Calculate scheduled posting time (business times are in their local timezone)
       const [hours, minutes] = (postTimes[i] || postTimes[0]).split(':').map(Number);
-      const scheduledFor = new Date(todayDate);
-      scheduledFor.setHours(hours, minutes, 0, 0);
+      const tz = business.timezone || 'America/New_York';
+      
+      // Create date in UTC, adjusting for business timezone
+      const now = new Date();
+      const localDateStr = now.toLocaleDateString('en-CA', { timeZone: tz }); // YYYY-MM-DD
+      const scheduledFor = new Date(`${localDateStr}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00`);
+      
+      // Convert from business local time to UTC
+      const utcOffset = getTimezoneOffset(tz, scheduledFor);
+      scheduledFor.setMinutes(scheduledFor.getMinutes() + utcOffset);
 
       // Insert queue entry with plan metadata
       // processNextPost() reads _plan to know what to generate
@@ -109,7 +129,7 @@ export async function planDailyContent() {
           business_id: business.id,
           type: schedule.types[i] || 'static_image',
           status: 'planned',
-          platform: 'instagram',
+          platform: business.publish_to || 'both',
           scheduled_for: scheduledFor.toISOString(),
           batch_id: batchId,
           ai_content: {
@@ -210,11 +230,12 @@ async function getOrCreateResearch(business) {
 export async function processNextPost() {
   const startTime = Date.now();
 
-  // ── 1. Find oldest planned post ──
+  // ── 1. Find next post that's due (scheduled_for <= now) ──
   const { data: nextPost, error: fetchErr } = await supabase
     .from('cf_content_queue')
     .select('*, cf_businesses(*)')
     .eq('status', 'planned')
+    .lte('scheduled_for', new Date().toISOString())
     .order('scheduled_for', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -316,6 +337,13 @@ export async function processNextPost() {
     // Extract content attributes (deterministic, no AI call)
     const season = getSeasonContext();
     const attributes = extractContentAttributes(content, planData, season);
+
+    // Add posting time context for performance learning
+    const scheduledDate = new Date(nextPost.scheduled_for);
+    const scheduledHour = scheduledDate.getUTCHours();
+    attributes.scheduled_hour_utc = scheduledHour;
+    attributes.time_slot = scheduledHour < 12 ? 'morning' : scheduledHour < 17 ? 'afternoon' : 'evening';
+    attributes.posted_day_of_week = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][scheduledDate.getUTCDay()];
 
     // Update queue with generated content
     await supabase.from('cf_content_queue').update({
