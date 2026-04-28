@@ -334,9 +334,9 @@ export async function processNextPost() {
     if (nextPost.type === 'static_image') {
       console.log(`[PROCESS] Rendering ${planData.template}...`);
 
-      const renderUrl = process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app/api/content-render';
+      const renderServiceUrl = process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app/api/content-render';
 
-      const renderResp = await fetch(`${renderUrl}/render`, {
+      const renderResp = await fetch(`${renderServiceUrl}/render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
