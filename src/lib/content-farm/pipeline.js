@@ -329,15 +329,14 @@ export async function processNextPost() {
 
     console.log(`[PROCESS] Generated: "${content.headline}"`);
 
-    // ── 6. Render (call /api/render on same Vercel project) ──
+    // ── 6. Render (call DO render service) ──
     let renderUrl = null;
     if (nextPost.type === 'static_image') {
       console.log(`[PROCESS] Rendering ${planData.template}...`);
 
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      const renderUrl = process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app/api/content-render';
 
-      const renderResp = await fetch(`${baseUrl}/api/render`, {
+      const renderResp = await fetch(`${renderUrl}/render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
