@@ -95,20 +95,28 @@ export async function postToInstagram(post) {
 
   if (container.error) throw new Error(`IG container failed: ${container.error.message}`);
 
-  // Step 2: For video, poll status until FINISHED
-  if (isVideo) {
-    let status = 'IN_PROGRESS';
-    let attempts = 0;
-    while (status === 'IN_PROGRESS' && attempts < 30) {
-      await new Promise(r => setTimeout(r, 5000));
-      const checkResp = await fetch(
-        `${GRAPH_API}/${container.id}?fields=status_code&access_token=${token.access_token}`
-      );
-      const check = await checkResp.json();
-      status = check.status_code;
-      attempts++;
+  // Step 2: Wait for container to be ready (images AND videos need this)
+  let status = 'IN_PROGRESS';
+  let attempts = 0;
+  const maxAttempts = isVideo ? 30 : 10;
+  const pollInterval = isVideo ? 5000 : 2000;
+  
+  while (status !== 'FINISHED' && attempts < maxAttempts) {
+    await new Promise(r => setTimeout(r, pollInterval));
+    const checkResp = await fetch(
+      `${GRAPH_API}/${container.id}?fields=status_code&access_token=${token.access_token}`
+    );
+    const check = await checkResp.json();
+    status = check.status_code;
+    attempts++;
+    
+    if (status === 'ERROR' || status === 'EXPIRED') {
+      throw new Error(`IG container processing failed: ${status}`);
     }
-    if (status !== 'FINISHED') throw new Error(`Reel processing failed: ${status}`);
+  }
+  
+  if (status !== 'FINISHED') {
+    throw new Error(`IG container not ready after ${attempts} attempts: ${status}`);
   }
 
   // Step 3: Publish
@@ -129,34 +137,45 @@ export async function postToInstagram(post) {
 
 // ── Facebook Publishing ─────────────────────────────────────────
 
+async function getPageAccessToken(pageId, systemUserToken) {
+  // System user tokens need to be exchanged for a Page Access Token
+  const resp = await fetch(
+    `${GRAPH_API}/${pageId}?fields=access_token&access_token=${systemUserToken}`
+  );
+  const data = await resp.json();
+  if (data.error) throw new Error(`Failed to get page token: ${data.error.message}`);
+  return data.access_token;
+}
+
 export async function postToFacebook(post) {
   const token = await getToken(post.business_id, 'facebook');
   const isVideo = post.render_output_type === 'video/mp4';
   const caption = `${post.caption || ''}\n\n${(post.hashtags || []).map(h => '#' + h).join(' ')}`;
 
+  // Get the actual Page Access Token (not the system user token)
+  const pageToken = await getPageAccessToken(token.fb_page_id, token.access_token);
+
   let result;
 
   if (isVideo) {
-    // Video post to page
     const resp = await fetch(`${GRAPH_API}/${token.fb_page_id}/videos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         file_url: post.render_output_url,
         description: caption,
-        access_token: token.fb_page_token || token.access_token,
+        access_token: pageToken,
       }),
     });
     result = await resp.json();
   } else {
-    // Photo post to page
     const resp = await fetch(`${GRAPH_API}/${token.fb_page_id}/photos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: post.render_output_url,
         message: caption,
-        access_token: token.fb_page_token || token.access_token,
+        access_token: pageToken,
       }),
     });
     result = await resp.json();
