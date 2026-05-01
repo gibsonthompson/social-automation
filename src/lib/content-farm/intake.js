@@ -33,7 +33,7 @@ export async function analyzeContent(uploadRecord, business) {
     const thumbResp = await fetch(`${doUrl.replace('/api/content-render', '')}/api/media/thumbnail`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ video_path: storage_path, timestamp: '5' }),
+      body: JSON.stringify({ video_path: storage_path, timestamp: '1' }),
     });
     const thumbData = await thumbResp.json();
 
@@ -214,7 +214,7 @@ export async function processUpload(uploadId) {
     return { success: true, analysis, caption };
   } catch (err) {
     await supabase.from('cf_content_uploads').update({
-      status: 'uploaded',  // Reset to allow retry
+      status: 'failed',
       error_log: err.message,
       updated_at: new Date().toISOString(),
     }).eq('id', uploadId);

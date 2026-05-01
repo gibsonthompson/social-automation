@@ -149,7 +149,21 @@ async function handleProcess(body) {
         result,
       });
     } catch (err) {
-      return NextResponse.json({ error: err.message, id: next.id }, { status: 500 });
+      // Single file failed — return 200 so UI continues with next file
+      // The record is already marked 'failed' in Supabase by processUpload
+      const { count } = await supabase
+        .from('cf_content_uploads')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', batch_id)
+        .eq('status', 'uploaded');
+
+      return NextResponse.json({
+        processed: 1,
+        id: next.id,
+        remaining: count || 0,
+        error: err.message,
+        skipped: true,
+      });
     }
   }
 

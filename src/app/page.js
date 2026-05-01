@@ -81,6 +81,7 @@ function UploadPage({ biz, onNavigate }) {
   const [batchId, setBatchId] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState({ done: 0, total: 0, current: '' });
+  const [processErrors, setProcessErrors] = useState(0);
   const [scheduling, setScheduling] = useState(false);
   const [scheduleResult, setScheduleResult] = useState(null);
   const [phase, setPhase] = useState('select');
@@ -127,16 +128,21 @@ function UploadPage({ biz, onNavigate }) {
 
   const processAll = async () => {
     if (!batchId) return;
-    setProcessing(true); setPhase('processing');
-    const total = files.filter(f => f.status === 'uploaded').length; let done = 0;
-    while (true) {
+    setProcessing(true); setPhase('processing'); setProcessErrors(0);
+    const total = files.filter(f => f.status === 'uploaded').length; let done = 0; let errors = 0;
+    const maxIterations = total + 10;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      iterations++;
       try {
         const resp = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'process', batch_id: batchId }) });
         const data = await resp.json();
         if (data.processed === 0 || data.reason === 'all_processed') break;
+        if (data.error || data.skipped) { errors++; done++; setProcessProgress({ done, total, current: `Skipped: ${data.error || 'unknown'}` }); continue; }
         done++; setProcessProgress({ done, total, current: data.result?.analysis?.content_description || '' });
-      } catch (err) { console.error('Process error:', err); break; }
+      } catch (err) { console.error('Process error:', err); errors++; if (errors > 5) break; }
     }
+    setProcessErrors(errors);
     setProcessing(false); setPhase('processed');
   };
 
@@ -219,7 +225,10 @@ function UploadPage({ biz, onNavigate }) {
 
       {phase === 'processed' && (
         <div style={{ padding: 24, background: 'var(--s1)', borderRadius: 12, border: '1px solid var(--bd)', textAlign: 'center' }}>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>All posts analyzed and captioned</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+            {processErrors > 0 ? `Analyzed with ${processErrors} errors` : 'All posts analyzed and captioned'}
+          </div>
+          {processErrors > 0 && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>Failed posts will be skipped during scheduling.</div>}
           <div style={{ fontSize: 13, color: 'var(--tx-muted)', marginBottom: 20 }}>Next: Schedule across 30 days (3 posts/day).</div>
           <Btn variant="primary" size="lg" onClick={scheduleBatch}>Schedule 30 Days</Btn>
         </div>
