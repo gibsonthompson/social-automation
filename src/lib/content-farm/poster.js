@@ -150,7 +150,10 @@ async function getPageAccessToken(pageId, systemUserToken) {
 export async function postToFacebook(post) {
   const token = await getToken(post.business_id, 'facebook');
   const isVideo = post.render_output_type === 'video/mp4';
-  const caption = `${post.caption || ''}\n\n${(post.hashtags || []).map(h => '#' + h).join(' ')}`;
+  
+  // Use facebook-specific caption if available, otherwise fall back to instagram caption
+  const fbCaption = post.facebook_caption || post.caption || '';
+  const caption = `${fbCaption}\n\n${(post.hashtags || []).map(h => '#' + h).join(' ')}`;
 
   // Get the actual Page Access Token (not the system user token)
   const pageToken = await getPageAccessToken(token.fb_page_id, token.access_token);

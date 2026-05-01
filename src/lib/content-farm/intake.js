@@ -21,16 +21,34 @@ const supabase = createClient(
 // ── Vision Analysis (Haiku — fast + cheap) ──────────────────────
 
 export async function analyzeContent(uploadRecord, business) {
-  const { media_url, media_type } = uploadRecord;
-
-  // Fetch the image as base64
-  const imageResp = await fetch(media_url);
-  const imageBuffer = await imageResp.arrayBuffer();
-  const base64 = Buffer.from(imageBuffer).toString('base64');
-
-  // For videos, we'd extract a frame — for now treat the thumbnail/first frame
+  const { media_url, media_type, storage_path } = uploadRecord;
   const isVideo = media_type?.includes('video');
-  const actualMediaType = isVideo ? 'image/png' : (media_type || 'image/png');
+
+  let base64;
+  let imageMediaType = 'image/jpeg';
+
+  if (isVideo) {
+    // Extract thumbnail from video via DO backend
+    const doUrl = process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app';
+    const thumbResp = await fetch(`${doUrl.replace('/api/content-render', '')}/api/media/thumbnail`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_path: storage_path, timestamp: '5' }),
+    });
+    const thumbData = await thumbResp.json();
+
+    if (thumbData.error) throw new Error(`Thumbnail extraction failed: ${thumbData.error}`);
+
+    // Extract base64 from data URL
+    base64 = thumbData.base64.replace(/^data:image\/\w+;base64,/, '');
+    imageMediaType = 'image/jpeg';
+  } else {
+    // Fetch image directly
+    const imageResp = await fetch(media_url);
+    const imageBuffer = await imageResp.arrayBuffer();
+    base64 = Buffer.from(imageBuffer).toString('base64');
+    imageMediaType = (media_type || 'image/png').replace('jpg', 'jpeg');
+  }
 
   const prompt = `You are analyzing a social media post for ${business.name}.
 
@@ -63,7 +81,7 @@ Analyze this image and return ONLY valid JSON (no markdown, no backticks):
           type: 'image',
           source: {
             type: 'base64',
-            media_type: actualMediaType.replace('jpg', 'jpeg'),
+            media_type: imageMediaType,
             data: base64,
           },
         },
