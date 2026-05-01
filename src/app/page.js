@@ -14,8 +14,11 @@ export default function ContentFarm() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setBiz(lsGet('cf_biz3', []));
-    setReady(true);
+    fetch('/api/businesses')
+      .then(r => r.json())
+      .then(d => { if (d.businesses?.length) setBiz(d.businesses); })
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
 
   const nav = [
