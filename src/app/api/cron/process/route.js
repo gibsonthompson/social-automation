@@ -61,13 +61,55 @@ export async function GET(request) {
 
     console.log(`[PROCESS] Publishing: "${nextPost.content_description}" for ${business.name} (${isVideo ? 'video' : 'image'})`);
 
+    // ── Pre-publish: ensure media file is accessible ──
+    let mediaUrl = nextPost.media_url;
+    try {
+      const headCheck = await fetch(mediaUrl, { method: 'HEAD' });
+      if (!headCheck.ok && nextPost.backup_url) {
+        // DO file was wiped by a deploy — restore from Supabase backup
+        console.log(`[PROCESS] DO file missing (${headCheck.status}), restoring from backup...`);
+        const doUrl = (process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app').replace('/api/content-render', '');
+        const restoreResp = await fetch(`${doUrl}/api/media/restore`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storage_path: nextPost.storage_path, backup_url: nextPost.backup_url }),
+        });
+        const restoreData = await restoreResp.json();
+        if (restoreData.restored) {
+          mediaUrl = restoreData.url;
+          console.log(`[PROCESS] Restored: ${mediaUrl}`);
+        } else {
+          throw new Error(`Restore failed: ${restoreData.error || 'unknown'}`);
+        }
+      }
+    } catch (checkErr) {
+      if (nextPost.backup_url) {
+        console.log(`[PROCESS] HEAD check failed, attempting restore...`);
+        try {
+          const doUrl = (process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app').replace('/api/content-render', '');
+          const restoreResp = await fetch(`${doUrl}/api/media/restore`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storage_path: nextPost.storage_path, backup_url: nextPost.backup_url }),
+          });
+          const restoreData = await restoreResp.json();
+          if (restoreData.restored) {
+            mediaUrl = restoreData.url;
+            console.log(`[PROCESS] Restored: ${mediaUrl}`);
+          }
+        } catch (restoreErr) {
+          console.error(`[PROCESS] Restore failed: ${restoreErr.message}`);
+        }
+      }
+    }
+
     try {
       const caption = nextPost.instagram_caption || '';
       const hashtags = nextPost.hashtags || [];
 
       if (isVideo) {
         // ── Video: Create containers only, don't wait for processing ──
-        const igResult = await createVideoContainers(nextPost, business, caption, hashtags);
+        const igResult = await createVideoContainers(nextPost, business, caption, hashtags, mediaUrl);
 
         // Save container IDs for next cron run to poll
         await supabase.from('cf_content_uploads').update({
@@ -89,7 +131,7 @@ export async function GET(request) {
         // ── Image: Full publish in one call (fast enough) ──
         const postForPublish = {
           business_id: business.id,
-          render_output_url: nextPost.media_url,
+          render_output_url: mediaUrl,
           render_output_type: 'image/png',
           caption,
           facebook_caption: nextPost.facebook_caption || '',
@@ -144,8 +186,9 @@ export async function GET(request) {
 
 // ── Video: Create containers without waiting ────────────────────
 
-async function createVideoContainers(post, business, caption, hashtags) {
+async function createVideoContainers(post, business, caption, hashtags, mediaUrl) {
   const fullCaption = `${caption}\n\n${hashtags.map(h => '#' + h).join(' ')}`;
+  const videoUrl = mediaUrl || post.media_url;
   const result = {};
 
   // Instagram container
@@ -163,7 +206,7 @@ async function createVideoContainers(post, business, caption, hashtags) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          video_url: post.media_url,
+          video_url: videoUrl,
           caption: fullCaption,
           media_type: 'REELS',
           access_token: token.access_token,
@@ -199,7 +242,7 @@ async function createVideoContainers(post, business, caption, hashtags) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              file_url: post.media_url,
+              file_url: videoUrl,
               description: `${fbCaption}\n\n${hashtags.map(h => '#' + h).join(' ')}`,
               access_token: pageTokenData.access_token,
             }),

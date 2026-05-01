@@ -1,11 +1,17 @@
 /**
- * Content Farm — Metrics Puller
- * Pulls performance data from platform APIs at multiple windows
+ * Metrics Cron — v2
  * 
- * Path: src/lib/content-farm/metrics.js
+ * Runs daily at midnight (Vercel cron).
+ * Pulls Instagram insights for published posts at 24h, 48h, 7d, 30d windows.
+ * Also cleans up old media files from storage after 7 days.
+ * 
+ * Path: src/app/api/cron/metrics/route.js
  */
 
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+export const maxDuration = 60;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -14,190 +20,157 @@ const supabase = createClient(
 
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
-// ── Pull Windows ────────────────────────────────────────────────
+export async function GET(request) {
+  const authHeader = request.headers.get('authorization');
+  const expected = `Bearer ${process.env.CRON_SECRET}`;
+  if (process.env.CRON_SECRET && authHeader !== expected) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-const PULL_WINDOWS = [
-  { label: '24h', hoursAgo: 24, tolerance: 4 },
-  { label: '48h', hoursAgo: 48, tolerance: 4 },
-  { label: '7d',  hoursAgo: 168, tolerance: 12 },
-  { label: '30d', hoursAgo: 720, tolerance: 24 },
-];
+  try {
+    const results = { metrics_pulled: 0, errors: 0, cleaned: 0 };
 
+    // ── Pull metrics for published posts ──
+    const now = new Date();
+    const windows = [
+      { name: '24h', minHours: 22, maxHours: 26 },
+      { name: '48h', minHours: 46, maxHours: 50 },
+      { name: '7d', minHours: 166, maxHours: 170 },
+      { name: '30d', minHours: 718, maxHours: 722 },
+    ];
 
-// ── Instagram Metrics ───────────────────────────────────────────
+    for (const window of windows) {
+      const minTime = new Date(now.getTime() - window.maxHours * 3600000).toISOString();
+      const maxTime = new Date(now.getTime() - window.minHours * 3600000).toISOString();
 
-async function pullInstagramMetrics(mediaId, accessToken) {
-  // Basic fields
-  const basicResp = await fetch(
-    `${GRAPH_API}/${mediaId}?fields=like_count,comments_count,media_type,timestamp&access_token=${accessToken}`
-  );
-  const basic = await basicResp.json();
+      const { data: posts } = await supabase
+        .from('cf_content_uploads')
+        .select('id, platform_post_id, business_id, content_pillar, content_type, visual_mode, mood, industry_target, hook_strength, time_slot, posted_at')
+        .eq('status', 'posted')
+        .not('platform_post_id', 'is', null)
+        .gte('posted_at', minTime)
+        .lte('posted_at', maxTime);
 
-  // Insights — different metrics for images vs reels
-  const isReel = basic.media_type === 'VIDEO';
-  const metricList = isReel
-    ? 'plays,reach,saved,shares,total_interactions'
-    : 'impressions,reach,saved,total_interactions';
+      if (!posts?.length) continue;
 
-  const insightsResp = await fetch(
-    `${GRAPH_API}/${mediaId}/insights?metric=${metricList}&access_token=${accessToken}`
-  );
-  const insights = await insightsResp.json();
+      // Get token for each business (cache per business)
+      const tokenCache = {};
 
-  const metricsMap = {};
-  if (insights.data) {
-    for (const item of insights.data) {
-      metricsMap[item.name] = item.values?.[0]?.value || 0;
+      for (const post of posts) {
+        try {
+          if (!tokenCache[post.business_id]) {
+            const { data: token } = await supabase
+              .from('cf_platform_tokens')
+              .select('access_token')
+              .eq('business_id', post.business_id)
+              .eq('platform', 'instagram')
+              .eq('status', 'active')
+              .single();
+            tokenCache[post.business_id] = token?.access_token;
+          }
+
+          const accessToken = tokenCache[post.business_id];
+          if (!accessToken) continue;
+
+          // Pull metrics from Instagram
+          const metricsResp = await fetch(
+            `${GRAPH_API}/${post.platform_post_id}/insights?metric=impressions,reach,likes,comments,shares,saved&access_token=${accessToken}`
+          );
+          const metricsData = await metricsResp.json();
+
+          if (metricsData.error) {
+            console.error(`[METRICS] Failed for ${post.platform_post_id}: ${metricsData.error.message}`);
+            results.errors++;
+            continue;
+          }
+
+          // Parse metrics
+          const metrics = {};
+          (metricsData.data || []).forEach(m => {
+            metrics[m.name] = m.values?.[0]?.value || 0;
+          });
+
+          // Calculate composite score
+          // Weights: saves 25%, shares 25%, comments 20%, likes 10%, impressions 10%, reach 10%
+          const composite = (
+            (metrics.saved || 0) * 0.25 +
+            (metrics.shares || 0) * 0.25 +
+            (metrics.comments || 0) * 0.20 +
+            (metrics.likes || 0) * 0.10 +
+            (metrics.impressions || 0) * 0.001 * 0.10 +  // Normalize large numbers
+            (metrics.reach || 0) * 0.001 * 0.10
+          );
+
+          // Store in cf_content_performance
+          await supabase.from('cf_content_performance').upsert({
+            upload_id: post.id,
+            business_id: post.business_id,
+            platform_post_id: post.platform_post_id,
+            window: window.name,
+            impressions: metrics.impressions || 0,
+            reach: metrics.reach || 0,
+            likes: metrics.likes || 0,
+            comments: metrics.comments || 0,
+            saves: metrics.saved || 0,
+            shares: metrics.shares || 0,
+            composite_score: composite,
+            // Content attributes for correlation
+            content_pillar: post.content_pillar,
+            content_type: post.content_type,
+            visual_mode: post.visual_mode,
+            mood: post.mood,
+            industry_target: post.industry_target,
+            hook_strength: post.hook_strength,
+            time_slot: post.time_slot,
+            pulled_at: now.toISOString(),
+          }, { onConflict: 'upload_id,window' });
+
+          results.metrics_pulled++;
+        } catch (err) {
+          console.error(`[METRICS] Error for ${post.id}: ${err.message}`);
+          results.errors++;
+        }
+      }
     }
-  }
 
-  const views = metricsMap.plays || metricsMap.impressions || 0;
-  const reach = metricsMap.reach || 0;
-  const saves = metricsMap.saved || 0;
-  const shares = metricsMap.shares || 0;
-  const likes = basic.like_count || 0;
-  const comments = basic.comments_count || 0;
-  const engagement = likes + comments + saves + shares;
-
-  return {
-    views,
-    reach,
-    impressions: metricsMap.impressions || views,
-    engagement,
-    engagement_rate: reach > 0 ? parseFloat((engagement / reach).toFixed(6)) : 0,
-    likes,
-    comments,
-    saves,
-    shares_sends: shares,
-    plays: metricsMap.plays || 0,
-    raw_response: { basic, insights: insights.data },
-  };
-}
-
-
-// ── Composite Score ─────────────────────────────────────────────
-
-function calculateCompositeScore(metrics, averages) {
-  if (!averages) {
-    // No historical data — use raw engagement
-    return Math.min(
-      (metrics.likes + metrics.comments * 2 + metrics.saves * 3 + metrics.shares_sends * 3),
-      100
-    );
-  }
-
-  const raw = (
-    (metrics.views / Math.max(averages.views, 1)) * 0.10 +
-    (metrics.reach / Math.max(averages.reach, 1)) * 0.10 +
-    (metrics.likes / Math.max(averages.likes, 1)) * 0.10 +
-    (metrics.comments / Math.max(averages.comments, 1)) * 0.20 +
-    (metrics.saves / Math.max(averages.saves, 1)) * 0.25 +
-    (metrics.shares_sends / Math.max(averages.shares, 1)) * 0.25
-  );
-
-  return Math.min(Math.round(raw * 50 * 100) / 100, 100);
-}
-
-
-// ── Main Pull Function ──────────────────────────────────────────
-
-export async function pullMetricsForWindow(windowConfig) {
-  const now = Date.now();
-  const targetMs = windowConfig.hoursAgo * 60 * 60 * 1000;
-  const toleranceMs = windowConfig.tolerance * 60 * 60 * 1000;
-
-  // Find posts that were posted within this window
-  const { data: posts } = await supabase
-    .from('cf_content_queue')
-    .select('id, business_id, platform, platform_post_id, posted_at')
-    .eq('status', 'posted')
-    .not('platform_post_id', 'is', null)
-    .gte('posted_at', new Date(now - targetMs - toleranceMs).toISOString())
-    .lte('posted_at', new Date(now - targetMs + toleranceMs).toISOString());
-
-  if (!posts?.length) return { pulled: 0, window: windowConfig.label };
-
-  let pulled = 0;
-  for (const post of posts) {
-    // Check if already pulled for this window
-    const { data: existing } = await supabase
-      .from('cf_content_performance')
-      .select('id')
-      .eq('queue_id', post.id)
-      .eq('pull_window', windowConfig.label)
-      .limit(1);
-
-    if (existing?.length) continue;
-
+    // ── Cleanup: delete media files 7+ days after posting ──
     try {
-      // Get token for this business
-      const { data: token } = await supabase
-        .from('cf_platform_tokens')
-        .select('access_token')
-        .eq('business_id', post.business_id)
-        .eq('platform', 'instagram')
-        .eq('status', 'active')
-        .single();
+      const cutoff = new Date(now.getTime() - 7 * 24 * 3600000).toISOString();
 
-      if (!token) continue;
+      const { data: oldPosts } = await supabase
+        .from('cf_content_uploads')
+        .select('id, storage_path, backup_url')
+        .eq('status', 'posted')
+        .lt('posted_at', cutoff)
+        .not('storage_path', 'is', null);
 
-      const metrics = await pullInstagramMetrics(post.platform_post_id, token.access_token);
+      if (oldPosts?.length) {
+        for (const post of oldPosts) {
+          try {
+            // Delete from Supabase Storage
+            if (post.storage_path) {
+              await supabase.storage.from('content-media').remove([post.storage_path]);
+            }
 
-      // Get business averages for composite score
-      const { data: avgData } = await supabase
-        .from('cf_content_performance')
-        .select('views, reach, likes, comments, saves, shares_sends')
-        .eq('business_id', post.business_id)
-        .eq('pull_window', '7d')
-        .gte('pulled_at', new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString());
+            // Mark as cleaned (null out backup_url)
+            await supabase.from('cf_content_uploads')
+              .update({ backup_url: null, updated_at: now.toISOString() })
+              .eq('id', post.id);
 
-      let averages = null;
-      if (avgData?.length >= 3) {
-        averages = {
-          views: avgData.reduce((s, r) => s + (r.views || 0), 0) / avgData.length,
-          reach: avgData.reduce((s, r) => s + (r.reach || 0), 0) / avgData.length,
-          likes: avgData.reduce((s, r) => s + (r.likes || 0), 0) / avgData.length,
-          comments: avgData.reduce((s, r) => s + (r.comments || 0), 0) / avgData.length,
-          saves: avgData.reduce((s, r) => s + (r.saves || 0), 0) / avgData.length,
-          shares: avgData.reduce((s, r) => s + (r.shares_sends || 0), 0) / avgData.length,
-        };
+            results.cleaned++;
+          } catch (cleanErr) {
+            console.error(`[CLEANUP] Failed for ${post.id}: ${cleanErr.message}`);
+          }
+        }
       }
-
-      const compositeScore = calculateCompositeScore(metrics, averages);
-
-      await supabase.from('cf_content_performance').insert({
-        queue_id: post.id,
-        business_id: post.business_id,
-        platform: post.platform,
-        platform_post_id: post.platform_post_id,
-        pull_window: windowConfig.label,
-        composite_score: compositeScore,
-        ...metrics,
-      });
-
-      // Update history with composite score (on 7d window)
-      if (windowConfig.label === '7d') {
-        await supabase.from('cf_content_history')
-          .update({ composite_score: compositeScore })
-          .eq('queue_id', post.id);
-      }
-
-      pulled++;
-    } catch (e) {
-      console.error(`[METRICS] Failed for post ${post.id}:`, e.message);
+    } catch (cleanErr) {
+      console.error(`[CLEANUP] Error: ${cleanErr.message}`);
     }
+
+    console.log(`[METRICS] Done: ${results.metrics_pulled} pulled, ${results.errors} errors, ${results.cleaned} cleaned`);
+    return NextResponse.json(results);
+  } catch (err) {
+    console.error('[METRICS] Fatal error:', err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  return { pulled, window: windowConfig.label, checked: posts.length };
 }
-
-export async function pullAllMetrics() {
-  const results = [];
-  for (const window of PULL_WINDOWS) {
-    const result = await pullMetricsForWindow(window);
-    results.push(result);
-  }
-  return results;
-}
-
-export { PULL_WINDOWS };

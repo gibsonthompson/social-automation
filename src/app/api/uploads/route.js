@@ -88,6 +88,7 @@ async function handleCreate(body) {
     filename: f.originalName || f.filename,
     media_type: f.mediaType,
     media_url: f.url,
+    backup_url: f.backupUrl || null,
     storage_path: f.storagePath,
     file_size_bytes: f.size,
     status: 'uploaded',
