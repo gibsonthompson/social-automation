@@ -80,8 +80,17 @@ export async function scheduleUploads(batchId, startDate = null) {
 
     for (let slot = 0; slot < postsPerDay; slot++) {
       // Pick the best pillar for this slot
-      const pillar = pickPillar(pillarWeights, usedPillars, buckets);
-      if (!pillar) continue;
+      let pillar = pickPillar(pillarWeights, usedPillars, buckets);
+
+      if (!pillar) {
+        // All used pillars exhausted or empty — grab from any bucket that has content
+        const fallbackPost = pickFromAnyBucket(buckets, usedModes);
+        if (!fallbackPost) continue; // Truly nothing left
+        scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
+        usedPillars.push(fallbackPost.content_pillar);
+        usedModes.push(fallbackPost.visual_mode);
+        continue;
+      }
 
       // Pick the best post from that bucket (avoid same visual mode as previous)
       const post = pickPost(buckets[pillar], usedModes);
