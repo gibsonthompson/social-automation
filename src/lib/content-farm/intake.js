@@ -353,6 +353,21 @@ export async function processUpload(uploadId) {
   try {
     const analysis = await analyzeContent(upload, business);
 
+    // For videos, get a thumbnail URL for calendar preview
+    let thumbnailUrl = null;
+    if (upload.media_type?.includes('video')) {
+      try {
+        const doUrl = (process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app').replace('/api/content-render', '');
+        const thumbResp = await fetch(`${doUrl}/api/media/thumbnail`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ video_path: upload.storage_path, timestamp: '3' }),
+        });
+        const thumbData = await thumbResp.json();
+        if (thumbData.url) thumbnailUrl = thumbData.url;
+      } catch (e) { console.log('[INTAKE] Thumbnail for preview failed (non-fatal):', e.message); }
+    }
+
     const { data: latestAnalysis } = await supabase
       .from('cf_content_analysis')
       .select('best_hooks, recommendations, top_content_types')
@@ -378,6 +393,7 @@ export async function processUpload(uploadId) {
       instagram_caption: caption.instagram_caption,
       facebook_caption: caption.facebook_caption,
       hashtags: caption.hashtags,
+      thumbnail_url: thumbnailUrl,
       updated_at: new Date().toISOString(),
     }).eq('id', uploadId);
 

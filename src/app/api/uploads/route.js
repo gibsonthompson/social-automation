@@ -191,7 +191,8 @@ async function handleApprove(body) {
       .from('cf_content_uploads')
       .update({ status: 'approved', updated_at: new Date().toISOString() })
       .eq('batch_id', batch_id)
-      .eq('status', 'scheduled');
+      .eq('status', 'scheduled')
+      .select('id');
     
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ approved: data?.length || 0 });

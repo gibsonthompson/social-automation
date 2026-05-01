@@ -269,90 +269,222 @@ function CalendarPage({ biz }) {
   const [editingCaption, setEditingCaption] = useState(null);
   const [captionText, setCaptionText] = useState('');
 
-  const fetchUploads = async () => { setLoading(true); try { const resp = await fetch(`/api/uploads?business_id=${bizId}`); const data = await resp.json(); setUploads(data.uploads || []); } catch (e) { console.error(e); } setLoading(false); };
+  const fetchUploads = async () => {
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/uploads?business_id=${bizId}`);
+      const data = await resp.json();
+      setUploads(data.uploads || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
   useEffect(() => { fetchUploads(); }, [bizId]);
 
-  const approveOne = async (id) => { await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: id }) }); fetchUploads(); };
-  const saveCaption = async (id) => { await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_caption', upload_id: id, instagram_caption: captionText }) }); setEditingCaption(null); fetchUploads(); };
-  const approveAll = async () => { const scheduled = uploads.filter(u => u.status === 'scheduled'); for (const u of scheduled) { await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: u.id }) }); } fetchUploads(); };
+  const approveOne = async (id) => {
+    await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: id }) });
+    fetchUploads();
+  };
 
-  const byDay = {}; uploads.filter(u => u.day_number).forEach(u => { if (!byDay[u.day_number]) byDay[u.day_number] = []; byDay[u.day_number].push(u); });
+  const saveCaption = async (id) => {
+    await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_caption', upload_id: id, instagram_caption: captionText }) });
+    setEditingCaption(null);
+    fetchUploads();
+  };
+
+  const approveAll = async () => {
+    // Approve each scheduled post individually (reliable)
+    const scheduled = uploads.filter(u => u.status === 'scheduled');
+    for (const u of scheduled) {
+      await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: u.id }) });
+    }
+    alert(`Approved ${scheduled.length} posts.`);
+    fetchUploads();
+  };
+
+  // Group by day
+  const byDay = {};
+  uploads.filter(u => u.day_number).forEach(u => {
+    if (!byDay[u.day_number]) byDay[u.day_number] = [];
+    byDay[u.day_number].push(u);
+  });
   const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+
   const statusColors = { uploaded: 'var(--tx-dim)', analyzing: 'var(--blue)', captioned: 'var(--gold)', scheduled: 'var(--tx-muted)', approved: 'var(--green)', posting: 'var(--blue)', posted: 'var(--green)', failed: 'var(--red)', publishing_video: 'var(--blue)' };
+
   const scheduledCount = uploads.filter(u => u.status === 'scheduled').length;
+  const approvedCount = uploads.filter(u => u.status === 'approved').length;
   const postedCount = uploads.filter(u => u.status === 'posted').length;
+  const failedCount = uploads.filter(u => u.status === 'failed').length;
+
+  // Get thumbnail for any post (images use media_url, videos use thumbnail_url)
+  const getPreviewUrl = (post) => {
+    if (post.media_type?.includes('video')) return post.thumbnail_url || null;
+    return post.media_url || null;
+  };
 
   return (
     <div style={{ padding: 28 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700 }}>Content Calendar</h1>
-          <p style={{ color: 'var(--tx-muted)', fontSize: 13, marginTop: 4 }}>{uploads.length} posts — {scheduledCount} scheduled, {postedCount} posted</p>
+          <p style={{ color: 'var(--tx-muted)', fontSize: 13, marginTop: 4 }}>
+            {uploads.length} total — {scheduledCount} scheduled, {approvedCount} approved, {postedCount} posted{failedCount > 0 ? `, ${failedCount} failed` : ''}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {scheduledCount > 0 && <Btn variant="primary" onClick={approveAll}>Approve All ({scheduledCount})</Btn>}
           <Btn size="sm" onClick={fetchUploads}><Icon name="refresh" size={12} /></Btn>
         </div>
       </div>
-      <div style={{ marginBottom: 24 }}><div style={{ minWidth: 220 }}><Select label="Business" value={bizId} onChange={v => setBizId(v)} options={biz.map(x => ({ value: x.id, label: x.name }))} /></div></div>
 
-      {loading ? <div style={{ textAlign: 'center', padding: 60, fontSize: 13, color: 'var(--tx-muted)' }}>Loading...</div> : !days.length ? (
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ minWidth: 220 }}>
+          <Select label="Business" value={bizId} onChange={v => setBizId(v)} options={biz.map(x => ({ value: x.id, label: x.name }))} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60, fontSize: 13, color: 'var(--tx-muted)' }}>Loading...</div>
+      ) : !days.length ? (
         <div style={{ textAlign: 'center', padding: 60, background: 'var(--s1)', borderRadius: 12, border: '1px dashed var(--bd)' }}>
           <div style={{ fontSize: 15, color: 'var(--tx-muted)', fontWeight: 500 }}>No scheduled content</div>
           <div style={{ fontSize: 12, color: 'var(--tx-dim)', marginTop: 4 }}>Upload content to get started.</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {days.map(dayNum => {
             const dayPosts = byDay[dayNum].sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
-            const dayDate = dayPosts[0]?.scheduled_for ? new Date(dayPosts[0].scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : `Day ${dayNum}`;
+            const dayDate = dayPosts[0]?.scheduled_for
+              ? new Date(dayPosts[0].scheduled_for).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+              : `Day ${dayNum}`;
+            const dayScheduled = dayPosts.filter(p => p.status === 'scheduled').length;
+
             return (
               <div key={dayNum} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>Day {dayNum}</span>
-                    <span style={{ fontSize: 12, color: 'var(--tx-muted)' }}>{dayDate}</span>
+                {/* Day header */}
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--gold)', minWidth: 50 }}>DAY {dayNum}</span>
+                    <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{dayDate}</span>
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--tx-dim)' }}>{dayPosts.length} posts</span>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: 'var(--tx-dim)' }}>{dayPosts.length} posts</span>
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(dayPosts.length, 3)}, 1fr)` }}>
-                  {dayPosts.map(post => {
+
+                {/* Posts as horizontal cards */}
+                <div style={{ display: 'flex', gap: 0 }}>
+                  {dayPosts.map((post, postIdx) => {
                     const time = post.scheduled_for ? new Date(post.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
                     const isExp = expanded === post.id;
                     const isEdit = editingCaption === post.id;
                     const isVid = post.media_type?.includes('video');
+                    const previewUrl = getPreviewUrl(post);
+
                     return (
-                      <div key={post.id} style={{ borderRight: '1px solid var(--bd)', padding: 12 }}>
-                        <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '9/16', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', position: 'relative', background: 'var(--s2)' }}>
-                          {post.media_url && !isVid ? <img src={post.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--tx-dim)', fontWeight: 600 }}>{isVid ? 'VIDEO' : '—'}</div>}
-                          <div style={{ position: 'absolute', top: 6, left: 6 }}><Tag color={statusColors[post.status] || 'var(--tx-dim)'}>{post.status}</Tag></div>
-                          <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,0.7)', borderRadius: 5, padding: '2px 8px', fontSize: 11, color: '#fff', fontWeight: 600 }}>{time}</div>
-                        </div>
-                        <div style={{ marginTop: 8 }}>
-                          <div style={{ display: 'flex', gap: 3, marginBottom: 4, flexWrap: 'wrap' }}>
-                            {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
-                            {post.content_type && <Tag color="var(--tx-muted)">{post.content_type}</Tag>}
+                      <div key={post.id} style={{ flex: 1, borderRight: postIdx < dayPosts.length - 1 ? '1px solid var(--bd)' : 'none', padding: 16, display: 'flex', flexDirection: 'column' }}>
+                        {/* Thumbnail */}
+                        <div
+                          onClick={() => setExpanded(isExp ? null : post.id)}
+                          style={{ width: '100%', aspectRatio: '4/5', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', position: 'relative', background: 'var(--s2)', marginBottom: 12 }}
+                        >
+                          {previewUrl ? (
+                            <img src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 24, opacity: 0.2 }}>{isVid ? '▶' : '—'}</span>
+                              <span style={{ fontSize: 10, color: 'var(--tx-dim)' }}>{isVid ? 'Video' : 'No preview'}</span>
+                            </div>
+                          )}
+                          {/* Status badge */}
+                          <div style={{ position: 'absolute', top: 8, left: 8 }}>
+                            <Tag color={statusColors[post.status] || 'var(--tx-dim)'}>{post.status}</Tag>
                           </div>
-                          <div style={{ fontSize: 10, color: 'var(--tx-muted)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.instagram_caption || '—'}</div>
+                          {/* Video indicator */}
+                          {isVid && previewUrl && (
+                            <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.7)', borderRadius: 5, padding: '2px 8px', fontSize: 9, color: '#fff', fontWeight: 700 }}>REEL</div>
+                          )}
+                          {/* Time */}
+                          <div style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.75)', borderRadius: 6, padding: '4px 10px', fontSize: 13, color: '#fff', fontWeight: 700 }}>{time}</div>
                         </div>
+
+                        {/* Content info */}
+                        <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+                          {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
+                          {post.content_type && <Tag color="var(--tx-muted)">{post.content_type}</Tag>}
+                          {post.hook_strength && <Tag color="var(--gold)">⚡{post.hook_strength}</Tag>}
+                        </div>
+
+                        {/* Caption preview */}
+                        <div style={{ fontSize: 11, color: 'var(--tx-muted)', lineHeight: 1.5, marginBottom: 8, flex: 1 }}>
+                          {isExp ? null : (
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                              {post.instagram_caption || post.content_description || '—'}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Expanded view */}
                         {isExp && (
-                          <div style={{ marginTop: 8, padding: 8, background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+                          <div style={{ padding: 12, background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--bd)', marginBottom: 8 }}>
+                            {post.content_description && (
+                              <div style={{ fontSize: 10, color: 'var(--tx-dim)', marginBottom: 10, padding: '6px 8px', background: 'var(--s2)', borderRadius: 6, fontStyle: 'italic' }}>
+                                AI Analysis: {post.content_description}
+                              </div>
+                            )}
+
                             {isEdit ? (
                               <div>
-                                <textarea value={captionText} onChange={e => setCaptionText(e.target.value)} style={{ width: '100%', minHeight: 100, background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, padding: 8, color: 'var(--tx)', fontSize: 11, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
-                                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}><Btn size="sm" variant="primary" onClick={() => saveCaption(post.id)}>Save</Btn><Btn size="sm" variant="ghost" onClick={() => setEditingCaption(null)}>Cancel</Btn></div>
+                                <textarea
+                                  value={captionText}
+                                  onChange={e => setCaptionText(e.target.value)}
+                                  style={{ width: '100%', minHeight: 140, background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 10, color: 'var(--tx)', fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+                                />
+                                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                                  <Btn size="sm" variant="primary" onClick={() => saveCaption(post.id)}>Save Caption</Btn>
+                                  <Btn size="sm" variant="ghost" onClick={() => setEditingCaption(null)}>Cancel</Btn>
+                                </div>
                               </div>
                             ) : (
                               <div>
-                                <div style={{ fontSize: 10, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 6 }}>{post.instagram_caption || 'No caption'}</div>
-                                {post.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 6 }}>{post.hashtags.map((h, i) => <Tag key={i} color="var(--purple)">#{h}</Tag>)}</div>}
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                  <Btn size="sm" variant="ghost" onClick={() => { setEditingCaption(post.id); setCaptionText(post.instagram_caption || ''); }}><Icon name="edit" size={10} /> Edit</Btn>
-                                  {post.status === 'scheduled' && <Btn size="sm" variant="primary" onClick={() => approveOne(post.id)}>Approve</Btn>}
-                                  {post.media_url && <Btn size="sm" variant="ghost" onClick={() => window.open(post.media_url, '_blank')}>View</Btn>}
+                                <div style={{ fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 10, color: 'var(--tx)' }}>
+                                  {post.instagram_caption || 'No caption generated'}
+                                </div>
+                                {post.hashtags?.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+                                    {post.hashtags.map((h, i) => <Tag key={i} color="var(--purple)">#{h}</Tag>)}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  <Btn size="sm" variant="ghost" onClick={() => { setEditingCaption(post.id); setCaptionText(post.instagram_caption || ''); }}>
+                                    <Icon name="edit" size={11} /> Edit Caption
+                                  </Btn>
+                                  {post.status === 'scheduled' && (
+                                    <Btn size="sm" variant="primary" onClick={() => approveOne(post.id)}>Approve</Btn>
+                                  )}
+                                  {post.media_url && (
+                                    <Btn size="sm" variant="ghost" onClick={() => window.open(post.media_url, '_blank')}>
+                                      <Icon name="image" size={11} /> View Full
+                                    </Btn>
+                                  )}
                                 </div>
                               </div>
                             )}
+
+                            {post.status === 'failed' && post.error_log && (
+                              <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(231,74,74,0.06)', borderRadius: 6, fontSize: 11, color: 'var(--red)' }}>
+                                Error: {post.error_log}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Quick actions */}
+                        {!isExp && (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <Btn size="sm" variant="ghost" onClick={() => setExpanded(post.id)}>Details</Btn>
+                            {post.status === 'scheduled' && <Btn size="sm" variant="primary" onClick={() => approveOne(post.id)}>Approve</Btn>}
                           </div>
                         )}
                       </div>
@@ -362,6 +494,38 @@ function CalendarPage({ biz }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Unscheduled posts */}
+      {uploads.filter(u => !u.day_number && u.status !== 'failed').length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--tx-muted)' }}>Unscheduled</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
+            {uploads.filter(u => !u.day_number && u.status !== 'failed').map(post => (
+              <div key={post.id} style={{ background: 'var(--s2)', borderRadius: 8, padding: 8, fontSize: 10, color: 'var(--tx-dim)' }}>
+                <Tag color={statusColors[post.status] || 'var(--tx-dim)'}>{post.status}</Tag>
+                <div style={{ marginTop: 4 }}>{post.filename || '—'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Failed posts */}
+      {failedCount > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--red)' }}>Failed ({failedCount})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {uploads.filter(u => u.status === 'failed').map(post => (
+              <div key={post.id} style={{ background: 'var(--s1)', border: '1px solid rgba(231,74,74,0.2)', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--tx-muted)' }}>{post.filename || post.content_description || '—'}</div>
+                  <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 2 }}>{post.error_log || 'Unknown error'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
