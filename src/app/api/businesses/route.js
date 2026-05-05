@@ -7,10 +7,7 @@ const supabase = createClient(
 );
 
 export async function GET() {
-  const { data, error } = await supabase
-    .from('cf_businesses')
-    .select('*')
-    .order('name');
+  const { data, error } = await supabase.rpc('get_all_businesses');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ businesses: data || [] });
