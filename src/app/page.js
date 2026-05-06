@@ -309,22 +309,13 @@ function CalendarPage({ bizId, b }) {
         </div>
       ) : (
         <>
-          {days.map(dayNum => {
-            const posts = byDay[dayNum].sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
-            const dayDate = posts[0]?.scheduled_for ? new Date(posts[0].scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
-            return (
-              <div key={dayNum} style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--cyan)', letterSpacing: '.08em' }}>DAY {dayNum}</span>
-                  <span style={{ fontSize: 11, color: 'var(--tx-dim)' }}>{dayDate}</span>
-                  <div style={{ flex: 1, height: 1, background: 'var(--bd)' }} />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 6 }}>
-                  {posts.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} />)}
-                </div>
-              </div>
-            );
-          })}
+          {/* Flat grid of all scheduled posts */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+            {days.flatMap(dayNum => {
+              const posts = byDay[dayNum].sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
+              return posts.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} />);
+            })}
+          </div>
 
           {unscheduled.length > 0 && (
             <div style={{ marginTop: 20 }}>
@@ -367,19 +358,19 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
   const isExp = expanded === post.id;
   const isEdit = editId === post.id;
   const time = post.scheduled_for ? new Date(post.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+  const dayLabel = post.scheduled_for ? new Date(post.scheduled_for).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
   const isVid = post.media_type?.includes('video');
 
   return (
-    <div style={{ background: 'var(--s1)', border: `1px solid ${isExp ? 'var(--bd-glow)' : 'var(--bd)'}`, borderRadius: 8, overflow: 'hidden', transition: 'border-color .15s' }}>
-      {/* Thumbnail + overlay */}
-      <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '1', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
+    <div style={{ background: 'var(--s1)', border: `1px solid ${isExp ? 'var(--bd-glow)' : 'var(--bd)'}`, borderRadius: 6, overflow: 'hidden', transition: 'border-color .15s' }}>
+      {/* Thumbnail */}
+      <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '3/4', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
         {preview ? <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 10 }}>{isVid ? '▶ Video' : '—'}</div>
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 9 }}>{isVid ? '▶ Video' : '—'}</div>
         )}
         <div style={{ position: 'absolute', top: 3, left: 3 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
-        {isVid && preview && <div style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 7, color: 'var(--cyan)', fontWeight: 700, letterSpacing: '.05em' }}>REEL</div>}
-        <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 6px', fontSize: 9, color: '#fff', fontWeight: 700 }}>{time}</div>
-        {/* Delete button */}
+        {isVid && preview && <div style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 7, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
+        <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,.85)', borderRadius: 3, padding: '1px 5px', fontSize: 8, color: '#fff', fontWeight: 700 }}>{dayLabel} {time}</div>
         <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,.8)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 3, padding: '2px 3px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={9} /></button>
       </div>
 
