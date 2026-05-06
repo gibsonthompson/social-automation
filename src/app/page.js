@@ -319,17 +319,36 @@ function CalendarPage({ bizId, b }) {
 
           {unscheduled.length > 0 && (
             <div style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', marginBottom: 8, letterSpacing: '.06em' }}>UNSCHEDULED ({unscheduled.length})</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
-                {unscheduled.map(p => (
-                  <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, padding: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <Tag color={STATUS[p.status]}>{p.status}</Tag>
-                      <div style={{ fontSize: 9, color: 'var(--tx-dim)', marginTop: 3 }}>{p.filename?.slice(0, 25) || '—'}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', letterSpacing: '.06em' }}>UNSCHEDULED ({unscheduled.length})</div>
+                {unscheduled.some(p => p.status === 'captioned') && (
+                  <Btn variant="primary" size="sm" onClick={async () => {
+                    const captioned = unscheduled.filter(p => p.status === 'captioned');
+                    if (!captioned.length) return;
+                    const batchIds = [...new Set(captioned.map(p => p.batch_id))];
+                    for (const bid of batchIds) {
+                      await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedule', batch_id: bid }) });
+                    }
+                    fetch_();
+                  }}>Schedule {unscheduled.filter(p => p.status === 'captioned').length} Posts</Btn>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+                {unscheduled.map(p => {
+                  const prev = p.media_type?.includes('video') ? (p.thumbnail_url || null) : (p.media_url || p.backup_url || null);
+                  return (
+                    <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, overflow: 'hidden' }}>
+                      <div style={{ width: '100%', aspectRatio: '3/4', position: 'relative', background: 'var(--s2)' }}>
+                        {prev ? <img src={prev} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 9 }}>▶</div>
+                        )}
+                        <div style={{ position: 'absolute', top: 3, left: 3 }}><Tag color={STATUS[p.status]}>{p.status}</Tag></div>
+                        <button onClick={() => deleteOne(p.id)} style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,.8)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 3, padding: '2px 3px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={9} /></button>
+                      </div>
+                      <div style={{ padding: '3px 6px 5px', fontSize: 8, color: 'var(--tx-dim)' }}>{p.filename?.slice(0, 20) || '—'}</div>
                     </div>
-                    <button onClick={() => deleteOne(p.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', opacity: 0.5, padding: 2 }}><Icon name="trash" size={12} /></button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
