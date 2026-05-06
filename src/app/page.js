@@ -270,7 +270,7 @@ function CalendarPage({ bizId, b }) {
   useEffect(() => { fetch_(); }, [bizId]);
 
   const approveOne = async (id) => { await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: id }) }); fetch_(); };
-  const deleteOne = async (id) => { if (!confirm('Delete this post?')) return; await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', upload_id: id }) }); setExpanded(null); fetch_(); };
+  const deleteOne = async (id) => { if (!confirm('Delete this post?')) return; const r = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', upload_id: id }) }); const d = await r.json(); if (d.error) { alert(d.error); return; } setExpanded(null); fetch_(); };
   const saveCaption = async (id) => { await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_caption', upload_id: id, instagram_caption: editText }) }); setEditId(null); fetch_(); };
   const approveAll = async () => { const s = uploads.filter(u => u.status === 'scheduled'); for (const u of s) await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', upload_id: u.id }) }); alert(`Approved ${s.length}`); fetch_(); };
 
@@ -428,7 +428,7 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
 function QueuePage({ bizId }) {
   const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const fetch_ = async () => { setLoading(true); try { const r = await fetch(`/api/uploads?business_id=${bizId}`); const d = await r.json(); const today = new Date().toISOString().split('T')[0]; setUploads((d.uploads || []).filter(u => { if (!u.scheduled_for) return u.status === 'failed'; return u.scheduled_for.startsWith(today) || ['posting', 'publishing_video', 'failed', 'posted'].includes(u.status); })); } catch(e){} setLoading(false); };
+  const fetch_ = async () => { setLoading(true); try { const r = await fetch(`/api/uploads?business_id=${bizId}`); const d = await r.json(); const today = new Date().toISOString().split('T')[0]; setUploads((d.uploads || []).filter(u => { if (!u.scheduled_for) return false; const postDate = u.scheduled_for.split('T')[0]; return postDate === today; })); } catch(e){} setLoading(false); };
   useEffect(() => { fetch_(); }, [bizId]);
 
   return (

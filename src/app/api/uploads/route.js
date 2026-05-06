@@ -223,15 +223,27 @@ async function handleDelete(body) {
   const { upload_id } = body;
   if (!upload_id) return NextResponse.json({ error: 'upload_id required' }, { status: 400 });
 
-  // Get the record first to find storage paths
+  // Get the record first
   const { data: upload } = await supabase
     .from('cf_content_uploads')
-    .select('storage_path, backup_url')
+    .select('storage_path, backup_url, status')
     .eq('id', upload_id)
     .single();
 
+  if (!upload) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // Prevent deleting posted content (preserves learning data)
+  if (upload.status === 'posted') {
+    return NextResponse.json({ error: 'Cannot delete posted content — metrics data would be lost' }, { status: 400 });
+  }
+
+  // Prevent deleting while actively publishing
+  if (upload.status === 'posting' || upload.status === 'publishing_video') {
+    return NextResponse.json({ error: 'Cannot delete while publishing in progress' }, { status: 400 });
+  }
+
   // Delete from Supabase Storage if backup exists
-  if (upload?.storage_path) {
+  if (upload.storage_path) {
     try {
       await supabase.storage.from('content-media').remove([upload.storage_path]);
     } catch (e) { /* non-fatal */ }
