@@ -285,7 +285,10 @@ function CalendarPage({ bizId, b }) {
   const approvedCount = uploads.filter(u => u.status === 'approved').length;
   const postedCount = uploads.filter(u => u.status === 'posted').length;
 
-  const preview = (p) => p.media_type?.includes('video') ? (p.thumbnail_url || null) : (p.media_url || null);
+  const preview = (p) => {
+    if (p.media_type?.includes('video')) return p.thumbnail_url || null;
+    return p.media_url || p.backup_url || null;
+  };
 
   return (
     <div style={{ padding: 24 }}>
@@ -316,7 +319,7 @@ function CalendarPage({ bizId, b }) {
                   <span style={{ fontSize: 11, color: 'var(--tx-dim)' }}>{dayDate}</span>
                   <div style={{ flex: 1, height: 1, background: 'var(--bd)' }} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 6 }}>
                   {posts.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} />)}
                 </div>
               </div>
@@ -373,29 +376,29 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
         {preview ? <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 10 }}>{isVid ? '▶ Video' : '—'}</div>
         )}
-        <div style={{ position: 'absolute', top: 4, left: 4 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
-        {isVid && preview && <div style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 6px', fontSize: 8, color: 'var(--cyan)', fontWeight: 700, letterSpacing: '.05em' }}>REEL</div>}
-        <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,.8)', borderRadius: 4, padding: '2px 8px', fontSize: 11, color: '#fff', fontWeight: 700 }}>{time}</div>
+        <div style={{ position: 'absolute', top: 3, left: 3 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
+        {isVid && preview && <div style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 7, color: 'var(--cyan)', fontWeight: 700, letterSpacing: '.05em' }}>REEL</div>}
+        <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 6px', fontSize: 9, color: '#fff', fontWeight: 700 }}>{time}</div>
         {/* Delete button */}
-        <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(0,0,0,.8)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 4, padding: '3px 5px', display: 'flex', opacity: 0.7 }}><Icon name="trash" size={11} /></button>
+        <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,.8)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 3, padding: '2px 3px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={9} /></button>
       </div>
 
       {/* Info bar */}
-      <div style={{ padding: '8px 10px' }}>
-        <div style={{ display: 'flex', gap: 3, marginBottom: 4, flexWrap: 'wrap' }}>
+      <div style={{ padding: '4px 6px 6px' }}>
+        <div style={{ display: 'flex', gap: 2, marginBottom: 2, flexWrap: 'wrap' }}>
           {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
           {post.content_type && <Tag color="var(--tx-dim)">{post.content_type}</Tag>}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--tx-muted)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+        <div style={{ fontSize: 9, color: 'var(--tx-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
           {post.instagram_caption || post.content_description || '—'}
         </div>
       </div>
 
       {/* Expanded */}
       {isExp && (
-        <div style={{ padding: '0 10px 10px' }}>
-          <div style={{ padding: 10, background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--bd)' }}>
-            {post.content_description && <div style={{ fontSize: 9, color: 'var(--tx-dim)', marginBottom: 8, padding: '4px 6px', background: 'var(--s2)', borderRadius: 4, fontStyle: 'italic' }}>AI: {post.content_description}</div>}
+        <div style={{ padding: '0 6px 6px' }}>
+          <div style={{ padding: 8, background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+            {post.content_description && <div style={{ fontSize: 8, color: 'var(--tx-dim)', marginBottom: 6, padding: '3px 5px', background: 'var(--s2)', borderRadius: 3, fontStyle: 'italic' }}>AI: {post.content_description}</div>}
             {isEdit ? (
               <div>
                 <textarea value={editText} onChange={e => setEditText(e.target.value)} style={{ width: '100%', minHeight: 120, background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, padding: 8, color: 'var(--tx)', fontSize: 11, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }} />

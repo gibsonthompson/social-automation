@@ -121,7 +121,7 @@ Your voice is: urgent but trustworthy. You're not fear-mongering — you're the 
 - HOOK: Lead with a specific symptom they might be noticing RIGHT NOW — a crack, a smell, a sticky door, water in the basement, musty air.
 - Be seasonal: Spring = heavy rain + hydrostatic pressure. Summer = humidity and crawl space mold. Fall = prep before winter settling. Winter = foundation settling as clay dries.
 - Reference specific Atlanta geography: "Georgia red clay," "50+ inches of rain annually — more than Seattle," "Cobb County clay soil," "homes built in the 70s and 80s along Johnson Ferry Road."
-- Trust signals: BBB A+ rated, IICRC certified, Google 5-star rating, 20+ years experience, family owned, extensive warranty program, GreenSky financing (0% interest options).
+- Trust signals: BBB accredited, 20+ years experience, family owned, extensive warranty program, GreenSky financing (0% interest options).
 - CTA: Point to waterhelpme.com or "Call 770-895-2039 for a free inspection." Free same-week inspections is a key differentiator.
 - Price anchoring: "Homeowners who catch this early typically pay $3,500-$5,000. Those who wait pay $10,000-$25,000+."
 - NEVER be vague about damage — be specific. "That hairline crack in your brick mortar" not "foundation issues." "Standing water in your crawl space" not "moisture problems."
@@ -357,7 +357,7 @@ export async function processUpload(uploadId) {
   try {
     const analysis = await analyzeContent(upload, business);
 
-    // For videos, get a thumbnail URL for calendar preview
+    // For videos, get a thumbnail URL for calendar preview — save to Supabase Storage for persistence
     let thumbnailUrl = null;
     if (upload.media_type?.includes('video')) {
       try {
@@ -368,7 +368,18 @@ export async function processUpload(uploadId) {
           body: JSON.stringify({ video_path: upload.storage_path, timestamp: '3' }),
         });
         const thumbData = await thumbResp.json();
-        if (thumbData.url) thumbnailUrl = thumbData.url;
+        if (thumbData.base64) {
+          // Upload thumbnail to Supabase Storage (persistent)
+          const thumbPath = `thumbnails/${upload.storage_path.replace(/\.[^.]+$/, '.jpg')}`;
+          const thumbBuffer = Buffer.from(thumbData.base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+          const { error: thumbUpErr } = await supabase.storage
+            .from('content-media')
+            .upload(thumbPath, thumbBuffer, { contentType: 'image/jpeg', upsert: true });
+          if (!thumbUpErr) {
+            const { data: urlData } = supabase.storage.from('content-media').getPublicUrl(thumbPath);
+            thumbnailUrl = urlData?.publicUrl || null;
+          }
+        }
       } catch (e) { console.log('[INTAKE] Thumbnail for preview failed (non-fatal):', e.message); }
     }
 
