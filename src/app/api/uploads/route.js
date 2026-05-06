@@ -64,6 +64,11 @@ export async function POST(request) {
     return handleApprove(body);
   }
 
+  // Route: delete post
+  if (body.action === 'delete') {
+    return handleDelete(body);
+  }
+
   // Route: update caption
   if (body.action === 'update_caption') {
     return handleUpdateCaption(body);
@@ -210,6 +215,36 @@ async function handleApprove(body) {
   }
 
   return NextResponse.json({ error: 'batch_id or upload_id required' }, { status: 400 });
+}
+
+// ── Delete ───────────────────────────────────────────────────────
+
+async function handleDelete(body) {
+  const { upload_id } = body;
+  if (!upload_id) return NextResponse.json({ error: 'upload_id required' }, { status: 400 });
+
+  // Get the record first to find storage paths
+  const { data: upload } = await supabase
+    .from('cf_content_uploads')
+    .select('storage_path, backup_url')
+    .eq('id', upload_id)
+    .single();
+
+  // Delete from Supabase Storage if backup exists
+  if (upload?.storage_path) {
+    try {
+      await supabase.storage.from('content-media').remove([upload.storage_path]);
+    } catch (e) { /* non-fatal */ }
+  }
+
+  // Delete the record
+  const { error } = await supabase
+    .from('cf_content_uploads')
+    .delete()
+    .eq('id', upload_id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ deleted: true });
 }
 
 // ── Update caption ──────────────────────────────────────────────
