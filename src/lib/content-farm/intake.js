@@ -238,10 +238,10 @@ Write in the style of what performed well. Avoid what underperformed.`
 
   const captionLength = analysis.suggested_caption_length || 'medium';
   const lengthGuidance = captionLength === 'short'
-    ? 'Write a SHORT caption: 1-3 punchy lines. Let the visual speak. Max 50 words.'
+    ? 'Write a SHORT caption: 1-2 punchy lines. Max 30 words. Let the visual do the talking.'
     : captionLength === 'long'
-    ? 'Write a LONG caption: Full story arc. 150-250 words. Problem → insight → solution → CTA.'
-    : 'Write a MEDIUM caption: 80-150 words. Hook → value → CTA.';
+    ? 'Write a LONGER caption: 5-8 lines max. 60-100 words total. Hook → insight → CTA. No filler.'
+    : 'Write a MEDIUM caption: 3-5 lines. 40-70 words total. Hook → one key point → CTA.';
 
   const prompt = `${expert.persona}
 
@@ -256,6 +256,10 @@ BUSINESS DETAILS
 - Tagline: ${business.tagline || ''}
 - StoryBrand: Customer is the HERO. ${business.name} is the GUIDE. Lead with the customer's problem, not the product.
 - CRITICAL: NEVER fabricate client stories, fake testimonials, or fictional conversations. Use general industry scenarios ("A plumber who misses 4 calls a day...") not fake specifics ("John in Phoenix told us..."). No fake names, no fake cities, no made-up meetings. No fabricated stats or revenue figures unless they are well-known industry statistics.
+- NEVER write in first person plural ("we saw," "we found," "today we," "we noticed," "our team"). You are writing AS the brand for the audience, not narrating what the brand did.
+- NEVER reference "today" or imply you witnessed something in the image/video. The caption accompanies the content — it does NOT narrate it.
+- NEVER pad the caption with filler sentences. Every single line must add value. If you can say it in 3 lines, do NOT use 6.
+- Keep it TIGHT. Instagram users skim. Short paragraphs (1-2 sentences each). Lots of line breaks. No walls of text.
 - Phone: ${business.design_system?.cta_bar?.phone || ''}
 - Website: ${business.website || ''}
 - Banned words: ${business.banned_words || 'game-changer, revolutionize, leverage, cutting-edge, seamless, unlock, synergy'}

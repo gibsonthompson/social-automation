@@ -69,44 +69,50 @@ export async function scheduleUploads(batchId, startDate = null) {
   const pillarWeights = { educate: 0.4, engage: 0.3, inspire: 0.2, promote: 0.1 };
 
   const scheduled = [];
+  let recentTypes = []; // Track last 3 content_types globally
+  let recentPillars = []; // Track last 3 pillars globally for cross-day diversity
 
   for (let day = 0; day < totalDays; day++) {
     const currentDate = new Date(start);
     currentDate.setDate(currentDate.getDate() + day);
     const dateStr = currentDate.toISOString().split('T')[0];
 
-    const usedPillars = [];
+    const usedPillars = []; // Within-day (for multi-post days)
     const usedModes = [];
 
     for (let slot = 0; slot < postsPerDay; slot++) {
-      // Pick the best pillar for this slot
-      let pillar = pickPillar(pillarWeights, usedPillars, buckets);
+      // Combine within-day and global history for pillar selection
+      const combinedPillarHistory = [...recentPillars.slice(-2), ...usedPillars];
+      let pillar = pickPillar(pillarWeights, combinedPillarHistory, buckets);
 
       if (!pillar) {
-        // All used pillars exhausted or empty — grab from any bucket that has content
-        const fallbackPost = pickFromAnyBucket(buckets, usedModes);
-        if (!fallbackPost) continue; // Truly nothing left
-        scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
-        usedPillars.push(fallbackPost.content_pillar);
-        usedModes.push(fallbackPost.visual_mode);
-        continue;
-      }
-
-      // Pick the best post from that bucket (avoid same visual mode as previous)
-      const post = pickPost(buckets[pillar], usedModes);
-      if (!post) {
-        // Try any bucket with content
-        const fallbackPost = pickFromAnyBucket(buckets, usedModes);
+        const fallbackPost = pickFromAnyBucket(buckets, usedModes, recentTypes);
         if (!fallbackPost) continue;
         scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
         usedPillars.push(fallbackPost.content_pillar);
         usedModes.push(fallbackPost.visual_mode);
+        recentTypes = [...recentTypes.slice(-2), fallbackPost.content_type];
+        recentPillars = [...recentPillars.slice(-2), fallbackPost.content_pillar];
+        continue;
+      }
+
+      const post = pickPost(buckets[pillar], usedModes, recentTypes);
+      if (!post) {
+        const fallbackPost = pickFromAnyBucket(buckets, usedModes, recentTypes);
+        if (!fallbackPost) continue;
+        scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
+        usedPillars.push(fallbackPost.content_pillar);
+        usedModes.push(fallbackPost.visual_mode);
+        recentTypes = [...recentTypes.slice(-2), fallbackPost.content_type];
+        recentPillars = [...recentPillars.slice(-2), fallbackPost.content_pillar];
         continue;
       }
 
       scheduled.push(buildSlot(post, dateStr, times[slot], timezone, day + 1, slot));
       usedPillars.push(pillar);
       usedModes.push(post.visual_mode);
+      recentTypes = [...recentTypes.slice(-2), post.content_type];
+      recentPillars = [...recentPillars.slice(-2), pillar];
     }
   }
 
@@ -164,27 +170,45 @@ function pickPillar(weights, used, buckets) {
   return candidates[0]?.[0] || null;
 }
 
-// ── Helper: Pick post from bucket, avoiding visual mode repeat ──
+// ── Helper: Pick post from bucket, avoiding visual mode AND content type repeats ──
 
-function pickPost(bucket, usedModes) {
+function pickPost(bucket, usedModes, recentTypes = []) {
   if (!bucket?.length) return null;
 
   const lastMode = usedModes[usedModes.length - 1];
+  const lastType = recentTypes[recentTypes.length - 1];
 
-  // Prefer different visual mode than previous
-  const differentMode = bucket.findIndex(p => p.visual_mode !== lastMode);
-  if (differentMode >= 0) return bucket.splice(differentMode, 1)[0];
+  // Best: different visual mode AND different content type
+  const best = bucket.findIndex(p => p.visual_mode !== lastMode && p.content_type !== lastType);
+  if (best >= 0) return bucket.splice(best, 1)[0];
 
-  // Otherwise just take the first (highest hook strength)
+  // Good: different content type (even if same mode)
+  const diffType = bucket.findIndex(p => p.content_type !== lastType);
+  if (diffType >= 0) return bucket.splice(diffType, 1)[0];
+
+  // Okay: different visual mode (even if same type)
+  const diffMode = bucket.findIndex(p => p.visual_mode !== lastMode);
+  if (diffMode >= 0) return bucket.splice(diffMode, 1)[0];
+
+  // Fallback: just take the first
   return bucket.shift();
 }
 
 // ── Helper: Pick from any bucket ────────────────────────────────
 
-function pickFromAnyBucket(buckets, usedModes) {
+function pickFromAnyBucket(buckets, usedModes, recentTypes = []) {
+  const lastType = recentTypes[recentTypes.length - 1];
+
+  // First pass: find any post with a different content_type
   for (const pillar of ['educate', 'engage', 'inspire', 'promote']) {
-    const post = pickPost(buckets[pillar], usedModes);
-    if (post) return post;
+    if (!buckets[pillar]?.length) continue;
+    const idx = buckets[pillar].findIndex(p => p.content_type !== lastType);
+    if (idx >= 0) return buckets[pillar].splice(idx, 1)[0];
+  }
+
+  // Second pass: just take anything
+  for (const pillar of ['educate', 'engage', 'inspire', 'promote']) {
+    if (buckets[pillar]?.length) return buckets[pillar].shift();
   }
   return null;
 }
