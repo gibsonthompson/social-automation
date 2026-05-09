@@ -22,7 +22,7 @@ export default function ContentFarm() {
   const nav = [
     { id: 'upload', l: 'Upload', ic: 'plus' },
     { id: 'calendar', l: 'Calendar', ic: 'folder' },
-    { id: 'queue', l: 'Queue', ic: 'bolt' },
+    { id: 'queue', l: 'Today', ic: 'bolt' },
     { id: 'insights', l: 'Insights', ic: 'bolt' },
   ];
 
@@ -187,6 +187,15 @@ function UploadPage({ biz, bizId, b, onNavigate }) {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Active business banner */}
+      <div style={{ padding: '12px 16px', background: `linear-gradient(135deg, ${b?.primary_color || 'var(--cyan)'}20, transparent)`, border: `1px solid ${b?.primary_color || 'var(--cyan)'}40`, borderRadius: 8, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: b?.primary_color || 'var(--cyan)', boxShadow: `0 0 8px ${b?.primary_color || 'var(--cyan)'}` }} />
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: b?.primary_color || 'var(--cyan)' }}>Uploading to: {b?.name || 'Select a business'}</div>
+          <div style={{ fontSize: 10, color: 'var(--tx-dim)' }}>All files will be assigned to this business. Switch tabs above to change.</div>
+        </div>
+      </div>
+
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, color: 'var(--cyan)' }}>Upload Content</h1>
       <p style={{ color: 'var(--tx-dim)', fontSize: 12, marginBottom: 20 }}>Drop files → AI analyzes → captions → schedule → auto-post</p>
 
@@ -440,33 +449,101 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
 
 function QueuePage({ bizId }) {
   const [uploads, setUploads] = useState([]);
+  const [businesses, setBiz] = useState([]);
   const [loading, setLoading] = useState(true);
-  const fetch_ = async () => { setLoading(true); try { const r = await fetch(`/api/uploads?business_id=${bizId}`); const d = await r.json(); const today = new Date().toISOString().split('T')[0]; setUploads((d.uploads || []).filter(u => { if (!u.scheduled_for) return false; const postDate = u.scheduled_for.split('T')[0]; return postDate === today; })); } catch(e){} setLoading(false); };
-  useEffect(() => { fetch_(); }, [bizId]);
+
+  const fetch_ = async () => {
+    setLoading(true);
+    try {
+      // Fetch businesses first
+      const bizResp = await fetch('/api/businesses');
+      const bizData = await bizResp.json();
+      const allBiz = bizData.businesses || [];
+      setBiz(allBiz);
+
+      // Fetch uploads for ALL businesses
+      const today = new Date().toISOString().split('T')[0];
+      const allUploads = [];
+      for (const b of allBiz) {
+        const r = await fetch(`/api/uploads?business_id=${b.id}`);
+        const d = await r.json();
+        const todayPosts = (d.uploads || []).filter(u => {
+          if (!u.scheduled_for) return false;
+          return u.scheduled_for.split('T')[0] === today;
+        }).map(u => ({ ...u, _bizName: b.name, _bizSlug: b.slug, _bizColor: b.primary_color }));
+        allUploads.push(...todayPosts);
+      }
+
+      // Sort by scheduled time
+      allUploads.sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
+      setUploads(allUploads);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetch_(); }, []);
+
+  const preview = (p) => {
+    if (p.media_type?.includes('video')) return p.thumbnail_url || null;
+    return p.media_url || p.backup_url || null;
+  };
+
+  const posted = uploads.filter(u => u.status === 'posted').length;
+  const pending = uploads.filter(u => ['approved', 'scheduled'].includes(u.status)).length;
+  const publishing = uploads.filter(u => ['posting', 'publishing_video'].includes(u.status)).length;
 
   return (
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--cyan)' }}>Today's Queue</h1>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--cyan)' }}>Today</h1>
+          <div style={{ fontSize: 11, color: 'var(--tx-dim)', marginTop: 2 }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} — {uploads.length} posts across all businesses
+            {posted > 0 && <span style={{ color: 'var(--green)' }}> · {posted} posted</span>}
+            {pending > 0 && <span style={{ color: 'var(--orange)' }}> · {pending} pending</span>}
+            {publishing > 0 && <span style={{ color: 'var(--cyan)' }}> · {publishing} publishing</span>}
+          </div>
+        </div>
         <Btn variant="ghost" size="sm" onClick={fetch_}><Icon name="refresh" size={12} /></Btn>
       </div>
+
       {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--tx-dim)', fontSize: 12 }}>Loading...</div> : !uploads.length ? (
-        <div style={{ textAlign: 'center', padding: 50, background: 'var(--s1)', borderRadius: 8, border: '1px dashed var(--bd)', color: 'var(--tx-dim)', fontSize: 13 }}>No posts for today</div>
+        <div style={{ textAlign: 'center', padding: 50, background: 'var(--s1)', borderRadius: 8, border: '1px dashed var(--bd)', color: 'var(--tx-dim)', fontSize: 13 }}>No posts scheduled for today</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-          {uploads.map(p => (
-            <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, overflow: 'hidden' }}>
-              <div style={{ padding: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <Tag color={STATUS[p.status]}>{p.status}</Tag>
-                  <span style={{ fontSize: 10, color: 'var(--tx-dim)' }}>{p.scheduled_for ? new Date(p.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+          {uploads.map(p => {
+            const time = new Date(p.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const prev = preview(p);
+            const isVid = p.media_type?.includes('video');
+            return (
+              <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, overflow: 'hidden' }}>
+                {/* Thumbnail */}
+                <div style={{ width: '100%', aspectRatio: '3/4', position: 'relative', background: 'var(--s2)' }}>
+                  {prev ? <img src={prev} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 9 }}>{isVid ? '▶ Video' : '—'}</div>
+                  )}
+                  <div style={{ position: 'absolute', top: 3, left: 3 }}><Tag color={STATUS[p.status]}>{p.status}</Tag></div>
+                  {isVid && prev && <div style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 7, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
+                  <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,.85)', borderRadius: 3, padding: '1px 5px', fontSize: 9, color: '#fff', fontWeight: 700 }}>{time}</div>
+                  {/* Business badge */}
+                  <div style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,.85)', borderRadius: 3, padding: '1px 6px', fontSize: 8, color: p._bizColor || 'var(--cyan)', fontWeight: 700 }}>{p._bizName}</div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--tx-muted)', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{p.instagram_caption || p.content_description || '—'}</div>
-                {p.status === 'failed' && p.error_log && <div style={{ marginTop: 6, padding: '4px 6px', background: 'rgba(255,59,92,0.06)', borderRadius: 4, fontSize: 9, color: 'var(--red)' }}>{p.error_log}</div>}
-                {p.platform_post_id && <div style={{ marginTop: 6, fontSize: 9, color: 'var(--green)' }}>Published: {p.platform_post_id}</div>}
+
+                {/* Info */}
+                <div style={{ padding: '5px 8px 7px' }}>
+                  <div style={{ display: 'flex', gap: 2, marginBottom: 3, flexWrap: 'wrap' }}>
+                    {p.content_pillar && <Tag color="var(--blue)">{p.content_pillar}</Tag>}
+                    {p.content_type && <Tag color="var(--tx-dim)">{p.content_type}</Tag>}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--tx-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                    {p.instagram_caption || '—'}
+                  </div>
+                  {p.platform_post_id && <div style={{ marginTop: 3, fontSize: 8, color: 'var(--green)' }}>✓ Published</div>}
+                  {p.status === 'failed' && <div style={{ marginTop: 3, fontSize: 8, color: 'var(--red)' }}>{p.error_log?.slice(0, 40) || 'Failed'}</div>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
