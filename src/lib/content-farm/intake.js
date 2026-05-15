@@ -328,15 +328,94 @@ Return ONLY valid JSON (no markdown, no backticks):
   "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }`;
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1200,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const generateOnce = async (extraInstructions = '') => {
+    const fullPrompt = extraInstructions ? `${prompt}\n\nCRITICAL FIXES REQUIRED:\n${extraInstructions}` : prompt;
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: fullPrompt }],
+    });
+    const text = response.content[0]?.text || '{}';
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(cleaned);
+  };
 
-  const text = response.content[0]?.text || '{}';
-  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(cleaned);
+  // ── Quality gate ──────────────────────────────────────────────
+  const checkCaption = (caption) => {
+    const ig = caption.instagram_caption || '';
+    const lines = ig.split('\n').filter(l => l.trim());
+    const hook = lines[0] || '';
+    const hookWords = hook.split(/\s+/).length;
+    const totalWords = ig.split(/\s+/).length;
+    const website = business.website || '';
+    const phone = business.design_system?.cta_bar?.phone || '';
+
+    const issues = [];
+
+    // Hook too long
+    if (hookWords > 12) issues.push(`Hook is ${hookWords} words — must be under 10. Current hook: "${hook}". Rewrite it shorter and punchier.`);
+
+    // Total length check
+    const maxWords = captionLength === 'short' ? 40 : captionLength === 'long' ? 120 : 80;
+    if (totalWords > maxWords) issues.push(`Caption is ${totalWords} words — max is ${maxWords} for ${captionLength} length. Cut the fluff. Every line must earn its place.`);
+
+    // Fabrication check
+    const fabricationPatterns = [
+      /\bwe (saw|found|noticed|walked|discovered|visited|met)\b/i,
+      /\btoday we\b/i,
+      /\bour team (saw|found|went|visited)\b/i,
+      /\bthis is what we\b/i,
+      /\bjust (saw|found|got back from)\b/i,
+      /\byesterday we\b/i,
+      /\blast week we\b/i,
+    ];
+    for (const pattern of fabricationPatterns) {
+      if (pattern.test(ig)) issues.push(`Contains fabricated narration matching "${pattern.source}". Remove ALL first-person stories. Write as authority, not narrator.`);
+    }
+
+    // First person plural
+    if (/\bwe're\b|\bwe've\b|\bwe are\b|\bour team\b/i.test(ig) && !/\bwe (offer|provide|specialize|install|handle)\b/i.test(ig)) {
+      issues.push('Uses first-person plural narration. Only use "we" for service descriptions ("we install", "we specialize"), never for stories.');
+    }
+
+    // Image narration
+    if (/\bas you can see\b|\bin this (image|video|reel|photo)\b|\bthis shows\b|\blook at this\b/i.test(ig)) {
+      issues.push('Narrates the image/video. The caption accompanies the visual — do NOT describe or reference it directly.');
+    }
+
+    // CTA check
+    const hasCTA = ig.toLowerCase().includes(website.toLowerCase()) || 
+                   (phone && ig.includes(phone)) ||
+                   /\bcall\b|\bvisit\b|\bschedule\b|\bbook\b|\bdm\b|\blink in bio\b/i.test(ig);
+    if (!hasCTA && captionLength !== 'short') issues.push(`No CTA found. Include ${website}${phone ? ' or ' + phone : ''}.`);
+
+    // Banned words
+    const banned = (business.banned_words || 'game-changer,revolutionize,leverage,cutting-edge,seamless,unlock,synergy').split(',').map(w => w.trim().toLowerCase());
+    for (const word of banned) {
+      if (word && ig.toLowerCase().includes(word)) issues.push(`Contains banned word "${word}". Remove it.`);
+    }
+
+    return issues;
+  };
+
+  // Generate and check
+  let caption = await generateOnce();
+  const issues = checkCaption(caption);
+
+  if (issues.length > 0) {
+    console.log(`[INTAKE] Quality gate failed (${issues.length} issues), regenerating...`);
+    try {
+      caption = await generateOnce(issues.join('\n'));
+      const recheck = checkCaption(caption);
+      if (recheck.length > 0) {
+        console.log(`[INTAKE] Regenerated caption still has ${recheck.length} issues — using anyway`);
+      }
+    } catch (e) {
+      console.log(`[INTAKE] Regeneration failed, using original: ${e.message}`);
+    }
+  }
+
+  return caption;
 }
 
 
