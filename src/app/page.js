@@ -583,39 +583,231 @@ function QueuePage({ bizId }) {
 
 function InsightsPage({ bizId }) {
   const [uploads, setUploads] = useState([]);
+  const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { setLoading(true); fetch(`/api/uploads?business_id=${bizId}`).then(r => r.json()).then(d => { setUploads(d.uploads || []); setLoading(false); }).catch(() => setLoading(false)); }, [bizId]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetch(`/api/uploads?business_id=${bizId}`).then(r => r.json()),
+      fetch(`/api/insights?business_id=${bizId}`).then(r => r.json()),
+    ]).then(([uploadData, insightData]) => {
+      setUploads(uploadData.uploads || []);
+      setInsights(insightData);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [bizId]);
+
   const posted = uploads.filter(u => u.status === 'posted').length;
   const approved = uploads.filter(u => u.status === 'approved').length;
   const scheduled = uploads.filter(u => u.status === 'scheduled').length;
-  const failedArr = uploads.filter(u => u.status === 'failed');
-  const pillars = { educate: 0, engage: 0, inspire: 0, promote: 0 };
-  uploads.forEach(u => { if (u.content_pillar && pillars[u.content_pillar] !== undefined) pillars[u.content_pillar]++; });
+  const failed = uploads.filter(u => u.status === 'failed').length;
+
+  const analysis = insights?.analysis;
+  const topPosts = insights?.topPosts || [];
+  const history = insights?.history || [];
+
+  const S = (props) => <div style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 16, marginBottom: 12, ...props.style }}>{props.children}</div>;
+  const Label = ({ children }) => <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--tx-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>{children}</div>;
+
+  if (loading) return <div style={{ padding: 24, textAlign: 'center', color: 'var(--tx-dim)', fontSize: 12 }}>Loading...</div>;
 
   return (
     <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--cyan)', marginBottom: 16 }}>Insights</h1>
-      {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--tx-dim)', fontSize: 12 }}>Loading...</div> : (
+      <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--cyan)', marginBottom: 4 }}>Insights & Learning</h1>
+      <p style={{ fontSize: 11, color: 'var(--tx-dim)', marginBottom: 16 }}>AI-powered performance analysis. Data drives every future caption.</p>
+
+      {/* Stats bar */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+        {[{ l: 'Posted', v: posted, c: 'var(--green)' }, { l: 'Approved', v: approved, c: 'var(--cyan)' }, { l: 'Scheduled', v: scheduled, c: 'var(--orange)' }, { l: 'Failed', v: failed, c: 'var(--red)' }].map(s => (
+          <div key={s.l} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: s.c, textShadow: `0 0 10px ${s.c}30` }}>{s.v}</div>
+            <div style={{ fontSize: 9, color: 'var(--tx-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {!analysis ? (
+        <S>
+          <div style={{ textAlign: 'center', padding: 30 }}>
+            <div style={{ fontSize: 14, color: 'var(--tx-dim)', marginBottom: 4 }}>No analysis data yet</div>
+            <div style={{ fontSize: 11, color: 'var(--tx-dim)' }}>The learning system needs 5+ published posts with 7 days of metrics data. Keep posting — the first analysis will run automatically on Sunday.</div>
+          </div>
+        </S>
+      ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 20 }}>
-            {[{ l: 'Posted', v: posted, c: 'var(--green)' }, { l: 'Approved', v: approved, c: 'var(--cyan)' }, { l: 'Scheduled', v: scheduled, c: 'var(--orange)' }, { l: 'Failed', v: failedArr.length, c: 'var(--red)' }].map(s => (
-              <div key={s.l} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 16, textAlign: 'center' }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: s.c, textShadow: `0 0 12px ${s.c}30` }}>{s.v}</div>
-                <div style={{ fontSize: 10, color: 'var(--tx-dim)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '.06em' }}>{s.l}</div>
+          {/* AI Summary */}
+          <S>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+              <Label>AI Analysis Summary</Label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {analysis.engagement_trend && (
+                  <Tag color={analysis.engagement_trend === 'improving' ? 'var(--green)' : analysis.engagement_trend === 'declining' ? 'var(--red)' : 'var(--orange)'}>{analysis.engagement_trend}</Tag>
+                )}
+                <span style={{ fontSize: 9, color: 'var(--tx-dim)' }}>{new Date(analysis.analyzed_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--tx)', marginBottom: 12 }}>{analysis.summary}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              <div style={{ padding: 8, background: 'var(--s2)', borderRadius: 6, textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--cyan)' }}>{analysis.avg_composite_score || '—'}</div>
+                <div style={{ fontSize: 8, color: 'var(--tx-dim)', marginTop: 2 }}>AVG COMPOSITE</div>
+              </div>
+              <div style={{ padding: 8, background: 'var(--s2)', borderRadius: 6, textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--green)' }}>{analysis.avg_engagement_rate || '—'}%</div>
+                <div style={{ fontSize: 8, color: 'var(--tx-dim)', marginTop: 2 }}>AVG ENGAGEMENT</div>
+              </div>
+              <div style={{ padding: 8, background: 'var(--s2)', borderRadius: 6, textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--purple)' }}>{analysis.avg_share_to_reach || '—'}%</div>
+                <div style={{ fontSize: 8, color: 'var(--tx-dim)', marginTop: 2 }}>SHARE-TO-REACH</div>
+              </div>
+            </div>
+          </S>
+
+          {/* What to do more / less */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <S style={{ marginBottom: 0, borderColor: 'rgba(0,240,160,0.15)' }}>
+              <Label>Double Down (do more)</Label>
+              {(analysis.double_down || []).map((item, i) => (
+                <div key={i} style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--green)', marginBottom: 6, paddingLeft: 10, borderLeft: '2px solid var(--green)' }}>{item}</div>
+              ))}
+            </S>
+            <S style={{ marginBottom: 0, borderColor: 'rgba(255,59,92,0.15)' }}>
+              <Label>Stop Doing (underperforming)</Label>
+              {(analysis.avoid || []).map((item, i) => (
+                <div key={i} style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--red)', marginBottom: 6, paddingLeft: 10, borderLeft: '2px solid var(--red)' }}>{item}</div>
+              ))}
+            </S>
+          </div>
+
+          {/* Recommendations */}
+          <S>
+            <Label>AI Recommendations</Label>
+            {(analysis.recommendations || []).map((rec, i) => (
+              <div key={i} style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--tx)', marginBottom: 8, padding: '8px 10px', background: 'var(--s2)', borderRadius: 6, borderLeft: '3px solid var(--cyan)' }}>
+                {rec}
               </div>
             ))}
+          </S>
+
+          {/* Best/Worst breakdown */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+            <S style={{ marginBottom: 0 }}>
+              <Label>Best Pillar</Label>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--green)', textTransform: 'capitalize' }}>{analysis.best_pillar || '—'}</div>
+              <div style={{ fontSize: 9, color: 'var(--tx-dim)', marginTop: 4 }}>Worst: <span style={{ color: 'var(--red)' }}>{analysis.worst_pillar || '—'}</span></div>
+            </S>
+            <S style={{ marginBottom: 0 }}>
+              <Label>Best Content Type</Label>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--green)' }}>{analysis.best_content_type || '—'}</div>
+              <div style={{ fontSize: 9, color: 'var(--tx-dim)', marginTop: 4 }}>Worst: <span style={{ color: 'var(--red)' }}>{analysis.worst_content_type || '—'}</span></div>
+            </S>
+            <S style={{ marginBottom: 0 }}>
+              <Label>Best Mood & Time</Label>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--green)' }}>{analysis.best_mood || '—'}</div>
+              <div style={{ fontSize: 9, color: 'var(--tx-dim)', marginTop: 4 }}>Best hour: <span style={{ color: 'var(--cyan)' }}>{analysis.best_posting_hour || '—'} UTC</span></div>
+            </S>
           </div>
-          <div style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Pillar Distribution</div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {Object.entries(pillars).map(([p, c]) => (
-                <div key={p} style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}><span style={{ fontSize: 10, color: 'var(--tx-dim)', textTransform: 'capitalize' }}>{p}</span><span style={{ fontSize: 10, fontWeight: 700 }}>{c}</span></div>
-                  <div style={{ height: 4, background: 'var(--s2)', borderRadius: 2, overflow: 'hidden' }}><div style={{ height: '100%', width: `${uploads.length ? (c / uploads.length * 100) : 0}%`, background: p === 'educate' ? 'var(--blue)' : p === 'engage' ? 'var(--green)' : p === 'inspire' ? 'var(--orange)' : 'var(--red)', borderRadius: 2 }} /></div>
-                </div>
-              ))}
+
+          {/* Content mix recommendation */}
+          {analysis.content_mix && (
+            <S>
+              <Label>Recommended Content Mix</Label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                {Object.entries(analysis.content_mix).map(([key, val]) => {
+                  const label = key.replace('_pct', '');
+                  const color = label === 'educate' ? 'var(--blue)' : label === 'engage' ? 'var(--green)' : label === 'inspire' ? 'var(--orange)' : 'var(--red)';
+                  return (
+                    <div key={key} style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color }}>{val}</div>
+                      <div style={{ fontSize: 9, color: 'var(--tx-dim)', textTransform: 'capitalize' }}>{label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </S>
+          )}
+
+          {/* Hook patterns + drivers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <S style={{ marginBottom: 0 }}>
+              <Label>What Drives Shares</Label>
+              <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--tx-muted)' }}>{analysis.share_drivers || 'Not enough data yet'}</div>
+            </S>
+            <S style={{ marginBottom: 0 }}>
+              <Label>What Drives Saves</Label>
+              <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--tx-muted)' }}>{analysis.save_drivers || 'Not enough data yet'}</div>
+            </S>
+          </div>
+
+          {/* Hook patterns */}
+          <S>
+            <Label>Hook Patterns That Work</Label>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--tx)', marginBottom: 10 }}>{analysis.hook_patterns || 'Not enough data yet'}</div>
+            {analysis.top_hooks?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 9, color: 'var(--tx-dim)', fontWeight: 700, marginBottom: 6 }}>TOP PERFORMING HOOKS:</div>
+                {analysis.top_hooks.map((hook, i) => (
+                  <div key={i} style={{ fontSize: 11, color: 'var(--cyan)', padding: '6px 8px', background: 'var(--s2)', borderRadius: 4, marginBottom: 4, fontStyle: 'italic' }}>"{hook}"</div>
+                ))}
+              </div>
+            )}
+          </S>
+
+          {/* Top posts table */}
+          {topPosts.length > 0 && (
+            <S>
+              <Label>Top Performing Posts (by composite score)</Label>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                      {['Hook', 'Pillar', 'Type', 'Score', 'Shares', 'Saves', 'Reach', 'Eng%'].map(h => (
+                        <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontSize: 9, color: 'var(--tx-dim)', fontWeight: 700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topPosts.slice(0, 8).map((p, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
+                        <td style={{ padding: '6px 8px', color: 'var(--tx-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.hook_text || '—'}</td>
+                        <td style={{ padding: '6px 8px' }}><Tag color="var(--blue)">{p.content_pillar}</Tag></td>
+                        <td style={{ padding: '6px 8px' }}><Tag color="var(--tx-dim)">{p.content_type}</Tag></td>
+                        <td style={{ padding: '6px 8px', color: 'var(--cyan)', fontWeight: 700 }}>{p.composite_score?.toFixed(0)}</td>
+                        <td style={{ padding: '6px 8px', color: 'var(--purple)' }}>{p.shares || 0}</td>
+                        <td style={{ padding: '6px 8px', color: 'var(--green)' }}>{p.saves || 0}</td>
+                        <td style={{ padding: '6px 8px' }}>{p.reach || 0}</td>
+                        <td style={{ padding: '6px 8px' }}>{p.engagement_rate?.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </S>
+          )}
+
+          {/* Trend history */}
+          {history.length > 1 && (
+            <S>
+              <Label>Weekly Trend</Label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {history.reverse().map((h, i) => (
+                  <div key={i} style={{ flex: 1, textAlign: 'center', padding: 8, background: 'var(--s2)', borderRadius: 6 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--cyan)' }}>{h.avg_composite_score?.toFixed(0) || '—'}</div>
+                    <div style={{ fontSize: 8, color: 'var(--tx-dim)' }}>{new Date(h.analyzed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    <div style={{ fontSize: 8, color: h.engagement_trend === 'improving' ? 'var(--green)' : h.engagement_trend === 'declining' ? 'var(--red)' : 'var(--orange)' }}>{h.engagement_trend || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            </S>
+          )}
+
+          {/* Data quality note */}
+          {analysis.data_quality_note && (
+            <div style={{ fontSize: 10, color: 'var(--tx-dim)', fontStyle: 'italic', padding: '8px 12px', background: 'var(--s1)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+              Note: {analysis.data_quality_note}
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
