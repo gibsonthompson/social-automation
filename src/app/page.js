@@ -319,7 +319,7 @@ function CalendarPage({ bizId, b }) {
       ) : (
         <>
           {/* Flat grid of all scheduled posts */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
             {days.flatMap(dayNum => {
               const posts = byDay[dayNum].sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
               return posts.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} />);
@@ -342,12 +342,12 @@ function CalendarPage({ bizId, b }) {
                   }}>Schedule {unscheduled.filter(p => p.status === 'captioned').length} Posts</Btn>
                 )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
                 {unscheduled.map(p => {
                   const prev = p.media_type?.includes('video') ? (p.thumbnail_url || null) : (p.media_url || p.backup_url || null);
                   return (
                     <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, overflow: 'hidden' }}>
-                      <div style={{ width: '100%', aspectRatio: '3/4', position: 'relative', background: 'var(--s2)' }}>
+                      <div style={{ width: '100%', aspectRatio: '4/5', position: 'relative', background: 'var(--s2)' }}>
                         {prev ? <img src={prev} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
                           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 9 }}>▶</div>
                         )}
@@ -390,52 +390,81 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
   const isVid = post.media_type?.includes('video');
 
   return (
-    <div style={{ background: 'var(--s1)', border: `1px solid ${isExp ? 'var(--bd-glow)' : 'var(--bd)'}`, borderRadius: 6, overflow: 'hidden', transition: 'border-color .15s' }}>
-      {/* Thumbnail */}
-      <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '3/4', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
-        {preview ? <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 9 }}>{isVid ? '▶ Video' : '—'}</div>
+    <div style={{ background: 'var(--s1)', border: `1px solid ${isExp ? 'var(--cyan)30' : 'var(--bd)'}`, borderRadius: 8, overflow: 'hidden', transition: 'border-color .15s' }}>
+      {/* Thumbnail — 4:5 Instagram ratio */}
+      <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '4/5', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
+        {preview ? <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" loading="lazy" /> : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <span style={{ fontSize: 28, opacity: 0.15 }}>{isVid ? '▶' : '—'}</span>
+            <span style={{ fontSize: 10, color: 'var(--tx-dim)' }}>{isVid ? 'Video' : 'No preview'}</span>
+          </div>
         )}
-        <div style={{ position: 'absolute', top: 3, left: 3 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
-        {isVid && preview && <div style={{ position: 'absolute', top: 3, right: 3, background: 'rgba(0,0,0,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 7, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
-        <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,.85)', borderRadius: 3, padding: '1px 5px', fontSize: 8, color: '#fff', fontWeight: 700 }}>{dayLabel} {time}</div>
-        <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,.8)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 3, padding: '2px 3px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={9} /></button>
+        <div style={{ position: 'absolute', top: 6, left: 6 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
+        {isVid && preview && <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '2px 7px', fontSize: 9, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
+        <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '3px 8px', fontSize: 10, color: '#fff', fontWeight: 700 }}>{dayLabel} · {time}</div>
+        <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 6, left: 6, background: 'rgba(0,0,0,.85)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 4, padding: '3px 5px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={11} /></button>
       </div>
 
-      {/* Info bar */}
-      <div style={{ padding: '4px 6px 6px' }}>
-        <div style={{ display: 'flex', gap: 2, marginBottom: 2, flexWrap: 'wrap' }}>
+      {/* Caption preview — Instagram style */}
+      <div style={{ padding: '10px 12px' }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
           {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
           {post.content_type && <Tag color="var(--tx-dim)">{post.content_type}</Tag>}
         </div>
-        <div style={{ fontSize: 9, color: 'var(--tx-muted)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-          {post.instagram_caption || post.content_description || '—'}
-        </div>
+        {!isExp && (
+          <div style={{ fontSize: 12, color: 'var(--tx-muted)', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+            {post.instagram_caption || post.content_description || '—'}
+          </div>
+        )}
       </div>
 
-      {/* Expanded */}
+      {/* Expanded — full Instagram-style caption */}
       {isExp && (
-        <div style={{ padding: '0 6px 6px' }}>
-          <div style={{ padding: 8, background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--bd)' }}>
-            {post.content_description && <div style={{ fontSize: 8, color: 'var(--tx-dim)', marginBottom: 6, padding: '3px 5px', background: 'var(--s2)', borderRadius: 3, fontStyle: 'italic' }}>AI: {post.content_description}</div>}
-            {isEdit ? (
-              <div>
-                <textarea value={editText} onChange={e => setEditText(e.target.value)} style={{ width: '100%', minHeight: 120, background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, padding: 8, color: 'var(--tx)', fontSize: 11, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }} />
-                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                  <Btn size="sm" variant="primary" onClick={() => saveCaption(post.id)}>Save</Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Btn>
+        <div style={{ padding: '0 12px 12px' }}>
+          <div style={{ background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--bd)', overflow: 'hidden' }}>
+            {/* Instagram-style caption area */}
+            <div style={{ padding: '12px 14px' }}>
+              {isEdit ? (
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--tx-dim)', marginBottom: 6, fontWeight: 600 }}>EDIT CAPTION</div>
+                  <textarea value={editText} onChange={e => setEditText(e.target.value)} style={{ width: '100%', minHeight: 160, background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 6, padding: 10, color: 'var(--tx)', fontSize: 13, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }} />
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <Btn size="sm" variant="primary" onClick={() => saveCaption(post.id)}>Save</Btn>
+                    <Btn size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Btn>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ fontSize: 11, lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{post.instagram_caption || 'No caption'}</div>
-                {post.hashtags?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 8 }}>{post.hashtags.map((h, i) => <Tag key={i} color="var(--purple)">#{h}</Tag>)}</div>}
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  <Btn size="sm" variant="ghost" onClick={() => { setEditId(post.id); setEditText(post.instagram_caption || ''); }}><Icon name="edit" size={10} /> Edit</Btn>
-                  {post.status === 'scheduled' && <Btn size="sm" variant="primary" onClick={() => approveOne(post.id)}>Approve</Btn>}
-                  {post.media_url && <Btn size="sm" variant="ghost" onClick={() => window.open(post.media_url, '_blank')}>View</Btn>}
-                  <Btn size="sm" variant="danger" onClick={() => deleteOne(post.id)}><Icon name="trash" size={10} /> Delete</Btn>
+              ) : (
+                <div>
+                  {/* Caption like Instagram */}
+                  <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--tx)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', marginBottom: 10 }}>
+                    {post.instagram_caption || 'No caption generated'}
+                  </div>
+
+                  {/* Hashtags */}
+                  {post.hashtags?.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--blue)', lineHeight: 1.6, marginBottom: 10 }}>
+                      {post.hashtags.map(h => `#${h}`).join(' ')}
+                    </div>
+                  )}
+
+                  {/* Facebook caption */}
+                  {post.facebook_caption && (
+                    <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--s2)', borderRadius: 6 }}>
+                      <div style={{ fontSize: 9, color: 'var(--tx-dim)', fontWeight: 700, marginBottom: 4, letterSpacing: '.06em' }}>FACEBOOK VERSION</div>
+                      <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--tx-muted)', whiteSpace: 'pre-wrap' }}>{post.facebook_caption}</div>
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
+
+            {/* Actions bar */}
+            {!isEdit && (
+              <div style={{ padding: '8px 14px', borderTop: '1px solid var(--bd)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Btn size="sm" variant="ghost" onClick={() => { setEditId(post.id); setEditText(post.instagram_caption || ''); }}><Icon name="edit" size={10} /> Edit</Btn>
+                {post.status === 'scheduled' && <Btn size="sm" variant="primary" onClick={() => approveOne(post.id)}>Approve</Btn>}
+                {post.media_url && <Btn size="sm" variant="ghost" onClick={() => window.open(post.media_url, '_blank')}>View Full</Btn>}
+                <Btn size="sm" variant="danger" onClick={() => deleteOne(post.id)}><Icon name="trash" size={10} /> Delete</Btn>
               </div>
             )}
           </div>
