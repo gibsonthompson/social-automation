@@ -21,6 +21,26 @@ const supabase = createClient(
 
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
+// ── SMS Notification on publish ─────────────────────────────────
+async function notifyPostPublished(businessName, caption, platformPostId) {
+  const apiKey = process.env.TELNYX_API_KEY;
+  const from = process.env.TELNYX_FROM_NUMBER;
+  const to = process.env.NOTIFY_PHONE_NUMBER;
+  if (!apiKey || !from || !to) return;
+
+  const preview = (caption || '').split('\n')[0].slice(0, 60);
+  const igLink = platformPostId ? `https://www.instagram.com/reel/${platformPostId}/` : '';
+  const body = `✅ ${businessName} posted\n"${preview}"\n${igLink}`;
+
+  try {
+    await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ from, to, text: body }),
+    });
+  } catch (e) { console.log('[SMS] Notification failed (non-fatal):', e.message); }
+}
+
 export async function GET(request) {
   const authHeader = request.headers.get('authorization');
   const expected = `Bearer ${process.env.CRON_SECRET}`;
@@ -150,6 +170,7 @@ export async function GET(request) {
 
         const duration = Date.now() - startTime;
         console.log(`[PROCESS] Published image: ${result.platform_post_id} (${duration}ms)`);
+        await notifyPostPublished(business.name, caption, result.platform_post_id);
 
         return NextResponse.json({
           processed: true,
@@ -209,6 +230,8 @@ async function createVideoContainers(post, business, caption, hashtags, mediaUrl
           video_url: videoUrl,
           caption: fullCaption,
           media_type: 'REELS',
+          thumb_offset: 3000,
+          share_to_feed: true,
           access_token: token.access_token,
         }),
       });
@@ -293,6 +316,7 @@ async function checkPendingVideoContainers() {
         updated_at: new Date().toISOString(),
       }).eq('id', pending.id);
 
+      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, containerData.fb_post_id);
       return { processed: true, id: pending.id, status: 'posted', platform_post_id: containerData.fb_post_id };
     }
 
@@ -330,6 +354,7 @@ async function checkPendingVideoContainers() {
       }).eq('id', pending.id);
 
       console.log(`[PROCESS] Video published: ${platformPostId}`);
+      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, platformPostId);
       return { processed: true, id: pending.id, status: 'posted', platform_post_id: platformPostId };
     }
 
