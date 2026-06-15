@@ -313,14 +313,21 @@ function CalendarPage({ bizId, b }) {
             <div style={{ marginTop: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', letterSpacing: '.06em' }}>UNSCHEDULED ({unscheduled.length})</div>
-                {unscheduled.some(p => p.status === 'captioned') && (
-                  <Btn variant="primary" size="sm" onClick={async () => {
-                    const captioned = unscheduled.filter(p => p.status === 'captioned');
-                    const batchIds = [...new Set(captioned.map(p => p.batch_id))];
-                    for (const bid of batchIds) await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedule', batch_id: bid }) });
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {unscheduled.some(p => p.status === 'captioned') && (
+                    <Btn variant="primary" size="sm" onClick={async () => {
+                      const captioned = unscheduled.filter(p => p.status === 'captioned');
+                      const batchIds = [...new Set(captioned.map(p => p.batch_id))];
+                      for (const bid of batchIds) await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'schedule', batch_id: bid }) });
+                      fetch_();
+                    }}>Schedule {unscheduled.filter(p => p.status === 'captioned').length} Posts</Btn>
+                  )}
+                  <Btn variant="danger" size="sm" onClick={async () => {
+                    if (!confirm(`Delete all ${unscheduled.length} unscheduled posts? This cannot be undone.`)) return;
+                    await Promise.all(unscheduled.map(p => fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', upload_id: p.id }) })));
                     fetch_();
-                  }}>Schedule {unscheduled.filter(p => p.status === 'captioned').length} Posts</Btn>
-                )}
+                  }}><Icon name="trash" size={11} /> Delete All</Btn>
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 280px))', gap: 8, justifyContent: 'start' }}>
                 {unscheduled.map(p => {
@@ -342,7 +349,14 @@ function CalendarPage({ bizId, b }) {
 
           {failed.length > 0 && (
             <div style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', marginBottom: 8, letterSpacing: '.06em' }}>FAILED ({failed.length})</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', letterSpacing: '.06em' }}>FAILED ({failed.length})</div>
+                <Btn variant="danger" size="sm" onClick={async () => {
+                  if (!confirm(`Delete all ${failed.length} failed posts? This cannot be undone.`)) return;
+                  await Promise.all(failed.map(p => fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', upload_id: p.id }) })));
+                  fetch_();
+                }}><Icon name="trash" size={11} /> Delete All ({failed.length})</Btn>
+              </div>
               {failed.map(p => (
                 <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid rgba(255,59,92,0.15)', borderRadius: 6, padding: '8px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
