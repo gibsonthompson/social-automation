@@ -341,7 +341,7 @@ Return ONLY valid JSON (no markdown, no backticks):
   const generateOnce = async (extraInstructions = '') => {
     const fullPrompt = extraInstructions ? `${prompt}\n\nCRITICAL FIXES REQUIRED:\n${extraInstructions}` : prompt;
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1200,
       messages: [{ role: 'user', content: fullPrompt }],
     });
