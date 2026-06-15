@@ -121,7 +121,7 @@ Your voice is: urgent but trustworthy. You're not fear-mongering — you're the 
 - HOOK: Lead with a specific symptom they might be noticing RIGHT NOW — a crack, a smell, a sticky door, water in the basement, musty air.
 - Be seasonal: Spring = heavy rain + hydrostatic pressure. Summer = humidity and crawl space mold. Fall = prep before winter settling. Winter = foundation settling as clay dries.
 - Reference specific Atlanta geography: "Georgia red clay," "50+ inches of rain annually — more than Seattle," "Cobb County clay soil," "homes built in the 70s and 80s along Johnson Ferry Road."
-- Trust signals: BBB accredited, 20+ years experience, family owned, extensive warranty program, GreenSky financing (0% interest options).
+- Trust signals: BBB A+ rated, IICRC certified, Google 5-star rating, 20+ years experience, family owned, extensive warranty program, GreenSky financing (0% interest options).
 - CTA: Point to waterhelpme.com or "Call 770-895-2039 for a free inspection." Free same-week inspections is a key differentiator.
 - Price anchoring: "Homeowners who catch this early typically pay $3,500-$5,000. Those who wait pay $10,000-$25,000+."
 - NEVER be vague about damage — be specific. "That hairline crack in your brick mortar" not "foundation issues." "Standing water in your crawl space" not "moisture problems."
@@ -229,11 +229,21 @@ export async function generateCaption(uploadRecord, business, analysis, weeklyAn
   const expert = EXPERT_PERSONAS[slug] || DEFAULT_PERSONA;
 
   const performanceInsights = weeklyAnalysis
-    ? `\n\nPERFORMANCE DATA FROM LAST WEEK (use this to write better):
-- Best performing hooks: ${JSON.stringify(weeklyAnalysis.best_hooks || [])}
+    ? `\n\nPERFORMANCE DATA FROM LAST ANALYSIS (use this to write better):
+- Summary: ${weeklyAnalysis.summary || 'No summary'}
+- Best content pillar: ${weeklyAnalysis.best_pillar || 'unknown'} — do MORE of this
+- Worst content pillar: ${weeklyAnalysis.worst_pillar || 'unknown'} — do LESS of this
+- Best content type: ${weeklyAnalysis.best_content_type || 'unknown'}
+- Best posting mood: ${weeklyAnalysis.best_mood || 'unknown'}
+- What drives shares: ${weeklyAnalysis.share_drivers || 'unknown'}
+- What drives saves: ${weeklyAnalysis.save_drivers || 'unknown'}
+- Hook patterns that work: ${weeklyAnalysis.hook_patterns || 'unknown'}
+- Top performing hooks: ${JSON.stringify(weeklyAnalysis.top_hooks || [])}
+- Do more of: ${JSON.stringify(weeklyAnalysis.double_down || [])}
+- Stop doing: ${JSON.stringify(weeklyAnalysis.avoid || [])}
 - Recommendations: ${JSON.stringify(weeklyAnalysis.recommendations || [])}
-- Top content types: ${JSON.stringify(weeklyAnalysis.top_content_types || [])}
-Write in the style of what performed well. Avoid what underperformed.`
+- Recommended content mix: ${JSON.stringify(weeklyAnalysis.content_mix || {})}
+Write in the style of what performed well. Match the hook patterns. Avoid what underperformed.`
     : '';
 
   const captionLength = analysis.suggested_caption_length || 'medium';
@@ -468,7 +478,7 @@ export async function processUpload(uploadId) {
 
     const { data: latestAnalysis } = await supabase
       .from('cf_content_analysis')
-      .select('best_hooks, recommendations, top_content_types')
+      .select('summary, best_pillar, worst_pillar, best_content_type, worst_content_type, best_mood, top_hooks, hook_patterns, share_drivers, save_drivers, recommendations, content_mix, avoid, double_down')
       .eq('business_id', business.id)
       .order('analyzed_at', { ascending: false })
       .limit(1)
