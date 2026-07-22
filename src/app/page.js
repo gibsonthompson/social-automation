@@ -618,9 +618,19 @@ function CalendarPage({ bizId, b }) {
 
 // ── Video Lightbox ───────────────────────────────────────────────
 
+
 function VideoLightbox({ post, onClose }) {
-  const [failed, setFailed] = useState(false);
+  // Build an ordered list of candidate sources. DO media_url can be dead for
+  // older posts (ephemeral disk / cleanup), so backup_url is the fallback.
+  const candidates = [post?.media_url, post?.backup_url].filter(Boolean);
+  const [srcIdx, setSrcIdx] = useState(0);
+  const [state, setState] = useState('loading'); // loading | ready | error
+  const [muted, setMuted] = useState(true);
   const videoRef = useRef(null);
+
+  const isVid = post?.media_type?.includes('video');
+  const poster = post?.thumbnail_url || null;
+  const src = candidates[srcIdx] || null;
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -629,11 +639,38 @@ function VideoLightbox({ post, onClose }) {
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
+  // Reset when the source list changes (new post opened)
+  useEffect(() => { setSrcIdx(0); setState('loading'); setMuted(true); }, [post?.id]);
+
+  const handleError = () => {
+    // Try the next candidate; if none left, show the error card
+    if (srcIdx < candidates.length - 1) {
+      setSrcIdx(i => i + 1);
+      setState('loading');
+    } else {
+      setState('error');
+    }
+  };
+
+  const handleReady = () => {
+    setState('ready');
+    const v = videoRef.current;
+    if (v) {
+      // Muted autoplay is allowed by browsers; unmuted is not.
+      v.play().catch(() => { /* user can press play via controls */ });
+    }
+  };
+
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setMuted(v.muted);
+    if (!v.muted && v.paused) v.play().catch(() => {});
+  };
+
   if (!post) return null;
 
-  const src = post.media_url || post.backup_url || null;
-  const poster = post.thumbnail_url || null;
-  const isVid = post.media_type?.includes('video');
   const when = post.scheduled_for
     ? new Date(post.scheduled_for).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : '';
@@ -643,7 +680,7 @@ function VideoLightbox({ post, onClose }) {
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,.88)', backdropFilter: 'blur(6px)',
+        background: 'rgba(0,0,0,.9)', backdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 28, boxSizing: 'border-box',
       }}
@@ -653,7 +690,7 @@ function VideoLightbox({ post, onClose }) {
         style={{
           position: 'absolute', top: 18, right: 22, width: 34, height: 34,
           borderRadius: 9, background: 'rgba(255,255,255,.08)', border: '1px solid var(--bd-light)',
-          color: 'var(--tx)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--tx)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2,
         }}
       ><Icon name="x" size={15} /></button>
 
@@ -661,32 +698,53 @@ function VideoLightbox({ post, onClose }) {
         onClick={e => e.stopPropagation()}
         style={{ display: 'flex', gap: 20, alignItems: 'stretch', maxWidth: 1100, width: '100%', maxHeight: '100%' }}
       >
-        {/* Player */}
-        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        {/* Player column */}
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <div style={{
-            height: 'min(82vh, 760px)', aspectRatio: '9/16', background: '#000',
+            height: 'min(80vh, 740px)', aspectRatio: '9/16', background: '#000',
             borderRadius: 14, overflow: 'hidden', border: '1px solid var(--bd)',
-            boxShadow: '0 24px 70px rgba(0,0,0,.7)',
+            boxShadow: '0 24px 70px rgba(0,0,0,.7)', position: 'relative',
           }}>
-            {isVid && src && !failed ? (
-              <video
-                ref={videoRef}
-                src={src}
-                poster={poster || undefined}
-                controls
-                autoPlay
-                playsInline
-                onError={() => setFailed(true)}
-                style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' }}
-              />
-            ) : (src || poster) ? (
-              <img src={src || poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-            ) : (
-              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 12 }}>
-                Media unavailable
+            {isVid && src && state !== 'error' ? (
+              <>
+                <video
+                  ref={videoRef}
+                  key={src}
+                  src={src}
+                  poster={poster || undefined}
+                  controls
+                  muted={muted}
+                  autoPlay
+                  playsInline
+                  preload="auto"
+                  onLoadedData={handleReady}
+                  onCanPlay={handleReady}
+                  onError={handleError}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' }}
+                />
+                {state === 'loading' && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: poster ? 'transparent' : '#000' }}>
+                    <div style={{ width: 26, height: 26, border: '2px solid rgba(255,255,255,.25)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+                  </div>
+                )}
+              </>
+            ) : state === 'error' ? (
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+                {poster && <img src={poster} alt="" style={{ maxWidth: '70%', borderRadius: 8, opacity: .5 }} />}
+                <div style={{ fontSize: 12, color: 'var(--tx-muted)' }}>The video file is no longer available on the server.</div>
+                <div style={{ fontSize: 10, color: 'var(--tx-dim)' }}>Media is cleaned up a few days after posting. The post record and its metrics are still intact.</div>
               </div>
+            ) : (
+              <img src={poster || post.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             )}
           </div>
+
+          {/* Mute toggle (only meaningful while a video is playing) */}
+          {isVid && state === 'ready' && (
+            <button onClick={toggleMute} style={{ marginTop: 10, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, background: 'var(--s2)', border: '1px solid var(--bd)', color: muted ? 'var(--orange)' : 'var(--green)' }}>
+              {muted ? 'Muted — tap for sound' : 'Sound on'}
+            </button>
+          )}
         </div>
 
         {/* Caption panel */}
@@ -701,7 +759,7 @@ function VideoLightbox({ post, onClose }) {
 
           <div style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 14, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--tx)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
-              {post.instagram_caption || 'No caption generated'}
+              {post.instagram_caption || 'No caption'}
             </div>
             {post.hashtags?.length > 0 && (
               <div style={{ fontSize: 13, color: 'var(--blue)', lineHeight: 1.6, marginTop: 12 }}>
@@ -718,14 +776,16 @@ function VideoLightbox({ post, onClose }) {
           )}
 
           {src && (
-            <Btn size="sm" variant="ghost" onClick={() => window.open(src, '_blank')}>Open original file</Btn>
+            <a href={src} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--cyan)', textDecoration: 'none' }}>
+              Open video in new tab ↗
+            </a>
           )}
-          <div style={{ fontSize: 10, color: 'var(--tx-dim)' }}>Press Esc or click outside to close</div>
         </div>
       </div>
     </div>
   );
 }
+
 
 function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, editText, setEditText, approveOne, deleteOne, saveCaption, onPlay }) {
   const isExp = expanded === post.id;
