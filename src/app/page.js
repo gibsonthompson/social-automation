@@ -487,6 +487,7 @@ function CalendarPage({ bizId, b }) {
   const [expanded, setExpanded] = useState(null);
   const [editId, setEditId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [playPost, setPlayPost] = useState(null);
 
   const fetch_ = async () => { setLoading(true); try { const r = await fetch(`/api/uploads?business_id=${bizId}`); const d = await r.json(); setUploads(d.uploads || []); } catch(e){} setLoading(false); };
   useEffect(() => { fetch_(); }, [bizId]);
@@ -545,7 +546,7 @@ function CalendarPage({ bizId, b }) {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 280px))', gap: 8, justifyContent: 'start' }}>
-            {sortedActive.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} />)}
+            {sortedActive.map(post => <PostCard key={post.id} post={post} preview={preview(post)} expanded={expanded} setExpanded={setExpanded} editId={editId} setEditId={setEditId} editText={editText} setEditText={setEditText} approveOne={approveOne} deleteOne={deleteOne} saveCaption={saveCaption} onPlay={setPlayPost} />)}
           </div>
 
           {unscheduled.length > 0 && (
@@ -609,11 +610,124 @@ function CalendarPage({ bizId, b }) {
           )}
         </>
       )}
+
+      {playPost && <VideoLightbox post={playPost} onClose={() => setPlayPost(null)} />}
     </div>
   );
 }
 
-function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, editText, setEditText, approveOne, deleteOne, saveCaption }) {
+// ── Video Lightbox ───────────────────────────────────────────────
+
+function VideoLightbox({ post, onClose }) {
+  const [failed, setFailed] = useState(false);
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  if (!post) return null;
+
+  const src = post.media_url || post.backup_url || null;
+  const poster = post.thumbnail_url || null;
+  const isVid = post.media_type?.includes('video');
+  const when = post.scheduled_for
+    ? new Date(post.scheduled_for).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,.88)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 28, boxSizing: 'border-box',
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute', top: 18, right: 22, width: 34, height: 34,
+          borderRadius: 9, background: 'rgba(255,255,255,.08)', border: '1px solid var(--bd-light)',
+          color: 'var(--tx)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      ><Icon name="x" size={15} /></button>
+
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ display: 'flex', gap: 20, alignItems: 'stretch', maxWidth: 1100, width: '100%', maxHeight: '100%' }}
+      >
+        {/* Player */}
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+          <div style={{
+            height: 'min(82vh, 760px)', aspectRatio: '9/16', background: '#000',
+            borderRadius: 14, overflow: 'hidden', border: '1px solid var(--bd)',
+            boxShadow: '0 24px 70px rgba(0,0,0,.7)',
+          }}>
+            {isVid && src && !failed ? (
+              <video
+                ref={videoRef}
+                src={src}
+                poster={poster || undefined}
+                controls
+                autoPlay
+                playsInline
+                onError={() => setFailed(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' }}
+              />
+            ) : (src || poster) ? (
+              <img src={src || poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-dim)', fontSize: 12 }}>
+                Media unavailable
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Caption panel */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Tag color={STATUS[post.status]}>{post.status}</Tag>
+            {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
+            {post.content_type && <Tag color="var(--tx-dim)">{post.content_type}</Tag>}
+            {post.visual_mode && <Tag color={post.visual_mode === 'dark' ? 'var(--purple)' : 'var(--orange)'}>{post.visual_mode}</Tag>}
+          </div>
+          {when && <div style={{ fontSize: 11, color: 'var(--tx-dim)' }}>{when}</div>}
+
+          <div style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 14, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--tx)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+              {post.instagram_caption || 'No caption generated'}
+            </div>
+            {post.hashtags?.length > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--blue)', lineHeight: 1.6, marginTop: 12 }}>
+                {post.hashtags.map(h => `#${h}`).join(' ')}
+              </div>
+            )}
+          </div>
+
+          {post.facebook_caption && (
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, padding: 12 }}>
+              <div style={{ fontSize: 9, color: 'var(--tx-dim)', fontWeight: 700, letterSpacing: '.06em', marginBottom: 5 }}>FACEBOOK VERSION</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--tx-muted)', whiteSpace: 'pre-wrap' }}>{post.facebook_caption}</div>
+            </div>
+          )}
+
+          {src && (
+            <Btn size="sm" variant="ghost" onClick={() => window.open(src, '_blank')}>Open original file</Btn>
+          )}
+          <div style={{ fontSize: 10, color: 'var(--tx-dim)' }}>Press Esc or click outside to close</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, editText, setEditText, approveOne, deleteOne, saveCaption, onPlay }) {
   const isExp = expanded === post.id;
   const isEdit = editId === post.id;
   const time = post.scheduled_for ? new Date(post.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -622,7 +736,7 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
 
   return (
     <div style={{ background: 'var(--s1)', border: `1px solid ${isExp ? 'var(--cyan)' : 'var(--bd)'}`, borderRadius: 8, overflow: 'hidden' }}>
-      <div onClick={() => setExpanded(isExp ? null : post.id)} style={{ width: '100%', aspectRatio: '4/5', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
+      <div onClick={() => onPlay ? onPlay(post) : setExpanded(isExp ? null : post.id)} title={onPlay ? 'Click to play full video' : undefined} style={{ width: '100%', aspectRatio: '4/5', position: 'relative', cursor: 'pointer', background: 'var(--s2)' }}>
         {preview ? <img src={preview} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" loading="lazy" /> : (
           <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
             <span style={{ fontSize: 28, opacity: 0.15 }}>{isVid ? '▶' : '—'}</span>
@@ -632,13 +746,28 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
         <div style={{ position: 'absolute', top: 6, left: 6 }}><Tag color={STATUS[post.status]}>{post.status}</Tag></div>
         {isVid && preview && <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '2px 7px', fontSize: 9, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
         <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '3px 8px', fontSize: 10, color: '#fff', fontWeight: 700 }}>{dayLabel} {time}</div>
+        {onPlay && (
+          <button
+            onClick={e => { e.stopPropagation(); onPlay(post); }}
+            title="Play full video"
+            style={{
+              position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+              width: 44, height: 44, borderRadius: '50%', cursor: 'pointer',
+              background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(3px)',
+              border: '1px solid rgba(255,255,255,.28)', color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 15, paddingLeft: 3, opacity: .82,
+            }}
+          >&#9654;</button>
+        )}
         <button onClick={e => { e.stopPropagation(); deleteOne(post.id); }} style={{ position: 'absolute', bottom: 6, left: 6, background: 'rgba(0,0,0,.85)', border: 'none', color: 'var(--red)', cursor: 'pointer', borderRadius: 4, padding: '3px 5px', display: 'flex', opacity: 0.6 }}><Icon name="trash" size={11} /></button>
       </div>
 
-      <div style={{ padding: '10px 12px' }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+      <div onClick={() => setExpanded(isExp ? null : post.id)} title={isExp ? 'Collapse' : 'Expand caption'} style={{ padding: '10px 12px', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {post.content_pillar && <Tag color="var(--blue)">{post.content_pillar}</Tag>}
           {post.content_type && <Tag color="var(--tx-dim)">{post.content_type}</Tag>}
+          <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--tx-dim)' }}>{isExp ? 'collapse' : 'expand'}</span>
         </div>
         {!isExp && (
           <div style={{ fontSize: 12, color: 'var(--tx-muted)', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
@@ -691,6 +820,7 @@ function PostCard({ post, preview, expanded, setExpanded, editId, setEditId, edi
 function QueuePage({ bizId }) {
   const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [playPost, setPlayPost] = useState(null);
 
   const fetch_ = async () => {
     setLoading(true);
@@ -746,7 +876,7 @@ function QueuePage({ bizId }) {
             const isVid = p.media_type?.includes('video');
             return (
               <div key={p.id} style={{ background: 'var(--s1)', border: '1px solid var(--bd)', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ width: '100%', aspectRatio: '4/5', position: 'relative', background: 'var(--s2)' }}>
+                <div onClick={() => setPlayPost(p)} title="Click to play full video" style={{ width: '100%', aspectRatio: '4/5', position: 'relative', background: 'var(--s2)', cursor: 'pointer' }}>
                   {prev ? <img src={prev} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" loading="lazy" /> : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                       <span style={{ fontSize: 28, opacity: 0.15 }}>{isVid ? '▶' : '—'}</span>
@@ -757,6 +887,7 @@ function QueuePage({ bizId }) {
                   {isVid && prev && <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '2px 7px', fontSize: 9, color: 'var(--cyan)', fontWeight: 700 }}>REEL</div>}
                   <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '3px 8px', fontSize: 10, color: '#fff', fontWeight: 700 }}>{time}</div>
                   <div style={{ position: 'absolute', bottom: 6, left: 6, background: 'rgba(0,0,0,.85)', borderRadius: 4, padding: '3px 8px', fontSize: 9, color: p._bizColor || 'var(--cyan)', fontWeight: 700 }}>{p._bizName}</div>
+                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 44, height: 44, borderRadius: '50%', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(3px)', border: '1px solid rgba(255,255,255,.28)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, paddingLeft: 3, opacity: .82, pointerEvents: 'none' }}>&#9654;</div>
                 </div>
                 <div style={{ padding: '10px 12px' }}>
                   <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -774,6 +905,8 @@ function QueuePage({ bizId }) {
           })}
         </div>
       )}
+
+      {playPost && <VideoLightbox post={playPost} onClose={() => setPlayPost(null)} />}
     </div>
   );
 }
