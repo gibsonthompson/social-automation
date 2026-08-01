@@ -1,10 +1,32 @@
 /**
- * Process Cron — v2
- * 
+ * Process Cron - v3
+ *
  * Called every 5 min by cron-job.org.
  * Finds approved uploads whose scheduled_for has passed, publishes them.
- * For videos: two-step publish (create container → poll on next cron run).
- * 
+ * For videos: create Instagram container, poll on a later cron run.
+ *
+ * FIXES IN v3
+ * -----------
+ * 1. error_log is no longer used as scratch space. In-flight publish state
+ *    moves to the publish_state column. This is the actual bug: on Instagram
+ *    success the old code set error_log to null, which deleted the Facebook
+ *    error along with it. Every Facebook failure since launch was erased
+ *    within five minutes of happening.
+ * 2. The Instagram access token is no longer written into the database. It is
+ *    re-read from cf_platform_tokens when the poller needs it.
+ * 3. Facebook video requests are sent as form-encoded, not JSON. Meta's video
+ *    endpoints do not reliably accept a JSON body.
+ * 4. Facebook outcomes are persisted to fb_post_id and fb_error and survive an
+ *    Instagram success.
+ * 5. The full Facebook error object is captured (message, type, code, subcode,
+ *    trace id), not just the message string.
+ * 6. Graph version bumped to v22.0 to match the rest of the system. The old
+ *    v21.0 here was inconsistent with your notes.
+ * 7. Token lookups use maybeSingle() so a missing row returns null instead of
+ *    throwing and aborting the whole run.
+ *
+ * REQUIRES: 04-publish-state.sql
+ *
  * Path: src/app/api/cron/process/route.js
  */
 
@@ -19,10 +41,44 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const GRAPH_API = 'https://graph.facebook.com/v21.0';
+const GRAPH_API = 'https://graph.facebook.com/v22.0';
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+function wantsPlatform(business, platform) {
+  const p = business.publish_to;
+  if (!p) return true;
+  return p === platform || p === 'both';
+}
+
+async function getToken(businessId, platform) {
+  const { data } = await supabase
+    .from('cf_platform_tokens')
+    .select('*')
+    .eq('business_id', businessId)
+    .eq('platform', platform)
+    .eq('status', 'active')
+    .maybeSingle();
+  return data || null;
+}
+
+// Captures everything Meta tells us, not just the message.
+function describeGraphError(err) {
+  if (!err) return null;
+  const parts = [];
+  if (err.message) parts.push(err.message);
+  if (err.type) parts.push(`type=${err.type}`);
+  if (err.code != null) parts.push(`code=${err.code}`);
+  if (err.error_subcode != null) parts.push(`subcode=${err.error_subcode}`);
+  if (err.error_user_title) parts.push(`title=${err.error_user_title}`);
+  if (err.error_user_msg) parts.push(`user_msg=${err.error_user_msg}`);
+  if (err.fbtrace_id) parts.push(`trace=${err.fbtrace_id}`);
+  return parts.join(' | ');
+}
 
 // ── SMS Notification on publish ─────────────────────────────────
-async function notifyPostPublished(businessName, caption, platformPostId) {
+
+async function notifyPostPublished(businessName, caption, platformPostId, fbError) {
   const apiKey = process.env.TELNYX_API_KEY;
   const from = process.env.TELNYX_FROM_NUMBER;
   const to = process.env.NOTIFY_PHONE_NUMBER;
@@ -30,7 +86,8 @@ async function notifyPostPublished(businessName, caption, platformPostId) {
 
   const preview = (caption || '').split('\n')[0].slice(0, 60);
   const igLink = platformPostId ? `https://www.instagram.com/reel/${platformPostId}/` : '';
-  const body = `✅ ${businessName} posted\n"${preview}"\n${igLink}`;
+  let body = `${businessName} posted\n"${preview}"\n${igLink}`;
+  if (fbError) body += `\nFACEBOOK FAILED: ${String(fbError).slice(0, 120)}`;
 
   try {
     await fetch('https://api.telnyx.com/v2/messages', {
@@ -40,6 +97,8 @@ async function notifyPostPublished(businessName, caption, platformPostId) {
     });
   } catch (e) { console.log('[SMS] Notification failed (non-fatal):', e.message); }
 }
+
+// ── Route ───────────────────────────────────────────────────────
 
 export async function GET(request) {
   const authHeader = request.headers.get('authorization');
@@ -79,14 +138,13 @@ export async function GET(request) {
 
     if (claimErr) throw new Error(`Claim failed: ${claimErr.message}`);
 
-    console.log(`[PROCESS] Publishing: "${nextPost.content_description}" for ${business.name} (${isVideo ? 'video' : 'image'})`);
+    console.log(`[PROCESS] Publishing: "${nextPost.filename}" for ${business.name} (${isVideo ? 'video' : 'image'})`);
 
     // ── Pre-publish: ensure media file is accessible ──
     let mediaUrl = nextPost.media_url;
     try {
       const headCheck = await fetch(mediaUrl, { method: 'HEAD' });
       if (!headCheck.ok && nextPost.backup_url) {
-        // DO file was wiped by a deploy — restore from Supabase backup
         console.log(`[PROCESS] DO file missing (${headCheck.status}), restoring from backup...`);
         const doUrl = (process.env.RENDER_SERVICE_URL || 'https://urchin-app-bqb4i.ondigitalocean.app').replace('/api/content-render', '');
         const restoreResp = await fetch(`${doUrl}/api/media/restore`, {
@@ -128,27 +186,38 @@ export async function GET(request) {
       const hashtags = nextPost.hashtags || [];
 
       if (isVideo) {
-        // ── Video: Create containers only, don't wait for processing ──
-        const igResult = await createVideoContainers(nextPost, business, caption, hashtags, mediaUrl);
+        // ── Video: Instagram container now, Facebook now, poll IG later ──
+        const state = await createVideoContainers(nextPost, business, caption, hashtags, mediaUrl);
 
-        // Save container IDs for next cron run to poll
+        // publish_state holds the in-flight IDs. No tokens, ever.
         await supabase.from('cf_content_uploads').update({
           status: 'publishing_video',
-          error_log: JSON.stringify(igResult), // Store container IDs temporarily
+          publish_state: state,
+          fb_post_id: state.fb_post_id || null,
+          fb_error: state.fb_error || null,
+          error_log: null,
           updated_at: new Date().toISOString(),
         }).eq('id', nextPost.id);
 
-        console.log(`[PROCESS] Video containers created, will poll next cron run`);
+        if (state.fb_error) {
+          console.error(`[PROCESS] FACEBOOK FAILED for ${nextPost.filename}: ${state.fb_error}`);
+        } else if (state.fb_post_id) {
+          console.log(`[PROCESS] Facebook published: ${state.fb_post_id}`);
+        } else if (state.fb_skipped) {
+          console.log(`[PROCESS] Facebook skipped: ${state.fb_skipped}`);
+        }
+
         return NextResponse.json({
           processed: true,
           id: nextPost.id,
           status: 'publishing_video',
-          message: 'Video containers created, polling on next cron run',
+          facebook: state.fb_post_id ? 'published' : (state.fb_error || state.fb_skipped || 'not attempted'),
+          message: 'Instagram container created, polling on next cron run',
           durationMs: Date.now() - startTime,
         });
 
       } else {
-        // ── Image: Full publish in one call (fast enough) ──
+        // ── Image: Full publish in one call ──
         const postForPublish = {
           business_id: business.id,
           render_output_url: mediaUrl,
@@ -164,13 +233,15 @@ export async function GET(request) {
         await supabase.from('cf_content_uploads').update({
           status: 'posted',
           platform_post_id: result.platform_post_id,
+          fb_post_id: result.fb_post_id || null,
+          fb_error: result.fb_error || null,
           posted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', nextPost.id);
 
         const duration = Date.now() - startTime;
         console.log(`[PROCESS] Published image: ${result.platform_post_id} (${duration}ms)`);
-        await notifyPostPublished(business.name, caption, result.platform_post_id);
+        await notifyPostPublished(business.name, caption, result.platform_post_id, result.fb_error);
 
         return NextResponse.json({
           processed: true,
@@ -205,24 +276,20 @@ export async function GET(request) {
   }
 }
 
-// ── Video: Create containers without waiting ────────────────────
+// ── Video: create IG container, publish to FB ───────────────────
 
 async function createVideoContainers(post, business, caption, hashtags, mediaUrl) {
-  const fullCaption = `${caption}\n\n${hashtags.map(h => '#' + h).join(' ')}`;
+  const tagLine = hashtags.map(h => (String(h).startsWith('#') ? h : '#' + h)).join(' ');
+  const fullCaption = tagLine ? `${caption}\n\n${tagLine}` : caption;
   const videoUrl = mediaUrl || post.media_url;
-  const result = {};
+  const state = {};
 
-  // Instagram container
-  if (business.publish_to === 'instagram' || business.publish_to === 'both' || !business.publish_to) {
-    const { data: token } = await supabase
-      .from('cf_platform_tokens')
-      .select('*')
-      .eq('business_id', business.id)
-      .eq('platform', 'instagram')
-      .eq('status', 'active')
-      .single();
-
-    if (token) {
+  // ---- Instagram ----------------------------------------------
+  if (wantsPlatform(business, 'instagram')) {
+    const token = await getToken(business.id, 'instagram');
+    if (!token) {
+      state.ig_skipped = 'no active instagram token row';
+    } else {
       const resp = await fetch(`${GRAPH_API}/${token.ig_user_id}/media`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -236,56 +303,75 @@ async function createVideoContainers(post, business, caption, hashtags, mediaUrl
         }),
       });
       const container = await resp.json();
-      if (container.error) throw new Error(`IG container failed: ${container.error.message}`);
-      result.ig_container_id = container.id;
-      result.ig_user_id = token.ig_user_id;
-      result.ig_token = token.access_token;
+      if (container.error) throw new Error(`IG container failed: ${describeGraphError(container.error)}`);
+      state.ig_container_id = container.id;
+      state.ig_user_id = token.ig_user_id;
+      // Token deliberately NOT stored. The poller re-reads it.
     }
   }
 
-  // Facebook — post video directly (no container flow needed)
-  if (business.publish_to === 'facebook' || business.publish_to === 'both' || !business.publish_to) {
-    const { data: token } = await supabase
-      .from('cf_platform_tokens')
-      .select('*')
-      .eq('business_id', business.id)
-      .eq('platform', 'facebook')
-      .eq('status', 'active')
-      .single();
-
-    if (token) {
+  // ---- Facebook ------------------------------------------------
+  if (wantsPlatform(business, 'facebook')) {
+    const token = await getToken(business.id, 'facebook');
+    if (!token) {
+      state.fb_skipped = 'no active facebook token row';
+    } else if (!token.fb_page_id) {
+      state.fb_skipped = 'facebook token row has no fb_page_id';
+    } else {
       try {
-        // Get Page Access Token
-        const pageTokenResp = await fetch(`${GRAPH_API}/${token.fb_page_id}?fields=access_token&access_token=${token.access_token}`);
+        // Facebook Page publishing needs a Page access token, not the
+        // system user token. Instagram does not. That difference is why
+        // one platform can work while the other silently does not.
+        const pageTokenResp = await fetch(
+          `${GRAPH_API}/${token.fb_page_id}?fields=access_token,name,tasks&access_token=${encodeURIComponent(token.access_token)}`
+        );
         const pageTokenData = await pageTokenResp.json();
 
-        if (pageTokenData.access_token) {
+        if (pageTokenData.error) {
+          state.fb_error = `page token lookup failed: ${describeGraphError(pageTokenData.error)}`;
+        } else if (!pageTokenData.access_token) {
+          state.fb_error = `no page access token returned for page ${token.fb_page_id}. tasks=${JSON.stringify(pageTokenData.tasks || null)}`;
+        } else {
+          if (Array.isArray(pageTokenData.tasks) && !pageTokenData.tasks.includes('CREATE_CONTENT')) {
+            state.fb_tasks_warning = `page tasks missing CREATE_CONTENT: ${pageTokenData.tasks.join(',')}`;
+          }
+
           const fbCaption = post.facebook_caption || caption;
+          const description = tagLine ? `${fbCaption}\n\n${tagLine}` : fbCaption;
+
+          // Form encoded. Meta's video endpoints do not reliably accept JSON.
+          const form = new URLSearchParams();
+          form.set('file_url', videoUrl);
+          form.set('description', description);
+          form.set('access_token', pageTokenData.access_token);
+
           const fbResp = await fetch(`${GRAPH_API}/${token.fb_page_id}/videos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              file_url: videoUrl,
-              description: `${fbCaption}\n\n${hashtags.map(h => '#' + h).join(' ')}`,
-              access_token: pageTokenData.access_token,
-            }),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: form.toString(),
           });
-          const fbResult = await fbResp.json();
+
+          const rawBody = await fbResp.text();
+          let fbResult;
+          try { fbResult = JSON.parse(rawBody); }
+          catch { fbResult = { error: { message: `non-JSON response (HTTP ${fbResp.status}): ${rawBody.slice(0, 300)}` } }; }
+
           if (fbResult.error) {
-            console.error(`[PROCESS] FB video post failed: ${fbResult.error.message}`);
-            result.fb_error = fbResult.error.message;
+            state.fb_error = describeGraphError(fbResult.error);
+            state.fb_http_status = fbResp.status;
+          } else if (fbResult.id) {
+            state.fb_post_id = fbResult.id;
           } else {
-            result.fb_post_id = fbResult.id;
+            state.fb_error = `unexpected response (HTTP ${fbResp.status}): ${rawBody.slice(0, 300)}`;
           }
         }
       } catch (fbErr) {
-        console.error(`[PROCESS] FB video error: ${fbErr.message}`);
-        result.fb_error = fbErr.message;
+        state.fb_error = `exception: ${fbErr.message}`;
       }
     }
   }
 
-  return result;
+  return state;
 }
 
 // ── Check pending video containers ──────────────────────────────
@@ -301,74 +387,93 @@ async function checkPendingVideoContainers() {
 
   if (!pending) return null;
 
-  console.log(`[PROCESS] Checking video container status for ${pending.id}`);
+  console.log(`[PROCESS] Checking video container status for ${pending.filename}`);
 
   try {
-    const containerData = JSON.parse(pending.error_log || '{}');
+    // Read from the new column, falling back to the old error_log format
+    // so any post already mid-flight when you deploy this still completes.
+    let state = pending.publish_state;
+    if (!state && pending.error_log) {
+      try { state = JSON.parse(pending.error_log); } catch { state = {}; }
+    }
+    state = state || {};
 
-    if (!containerData.ig_container_id) {
-      // No IG container — maybe FB-only, mark as posted
+    const fbPostId = pending.fb_post_id || state.fb_post_id || null;
+    const fbError = pending.fb_error || state.fb_error || null;
+
+    if (!state.ig_container_id) {
+      // Facebook only, or Instagram was skipped. Close it out.
       await supabase.from('cf_content_uploads').update({
-        status: 'posted',
-        platform_post_id: containerData.fb_post_id || null,
-        posted_at: new Date().toISOString(),
-        error_log: null,
+        status: fbPostId ? 'posted' : 'failed',
+        platform_post_id: fbPostId,
+        fb_post_id: fbPostId,
+        fb_error: fbError,
+        posted_at: fbPostId ? new Date().toISOString() : null,
+        error_log: fbPostId ? null : (fbError || 'no instagram container and no facebook post'),
         updated_at: new Date().toISOString(),
       }).eq('id', pending.id);
 
-      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, containerData.fb_post_id);
-      return { processed: true, id: pending.id, status: 'posted', platform_post_id: containerData.fb_post_id };
+      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, fbPostId, fbError);
+      return { processed: true, id: pending.id, status: fbPostId ? 'posted' : 'failed', facebook: fbPostId || fbError };
     }
 
-    // Poll IG container status
+    // Token is re-read, never taken from the database row.
+    const igToken = await getToken(pending.business_id, 'instagram');
+    if (!igToken) throw new Error('no active instagram token row while polling container');
+
     const checkResp = await fetch(
-      `${GRAPH_API}/${containerData.ig_container_id}?fields=status_code&access_token=${containerData.ig_token}`
+      `${GRAPH_API}/${state.ig_container_id}?fields=status_code,status&access_token=${encodeURIComponent(igToken.access_token)}`
     );
     const check = await checkResp.json();
+    if (check.error) throw new Error(`container status check failed: ${describeGraphError(check.error)}`);
     const status = check.status_code;
 
-    console.log(`[PROCESS] IG container ${containerData.ig_container_id} status: ${status}`);
+    console.log(`[PROCESS] IG container ${state.ig_container_id} status: ${status}`);
 
     if (status === 'FINISHED') {
-      // Publish to IG
-      const publishResp = await fetch(`${GRAPH_API}/${containerData.ig_user_id}/media_publish`, {
+      const publishResp = await fetch(`${GRAPH_API}/${state.ig_user_id}/media_publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          creation_id: containerData.ig_container_id,
-          access_token: containerData.ig_token,
+          creation_id: state.ig_container_id,
+          access_token: igToken.access_token,
         }),
       });
       const published = await publishResp.json();
-
-      if (published.error) throw new Error(`IG publish failed: ${published.error.message}`);
+      if (published.error) throw new Error(`IG publish failed: ${describeGraphError(published.error)}`);
 
       const platformPostId = published.id;
 
+      // THE FIX. Instagram succeeding no longer erases what Facebook said.
       await supabase.from('cf_content_uploads').update({
         status: 'posted',
         platform_post_id: platformPostId,
+        fb_post_id: fbPostId,
+        fb_error: fbError,
         posted_at: new Date().toISOString(),
-        error_log: null,
+        publish_state: null,
+        error_log: fbError ? `facebook: ${fbError}` : null,
         updated_at: new Date().toISOString(),
       }).eq('id', pending.id);
 
-      console.log(`[PROCESS] Video published: ${platformPostId}`);
-      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, platformPostId);
-      return { processed: true, id: pending.id, status: 'posted', platform_post_id: platformPostId };
+      console.log(`[PROCESS] Video published to IG: ${platformPostId}${fbError ? ` (FACEBOOK FAILED: ${fbError})` : ''}`);
+      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, platformPostId, fbError);
+      return { processed: true, id: pending.id, status: 'posted', platform_post_id: platformPostId, facebook: fbPostId || fbError || 'not attempted' };
     }
 
     if (status === 'ERROR' || status === 'EXPIRED') {
       await supabase.from('cf_content_uploads').update({
         status: 'failed',
-        error_log: `IG container ${status}`,
+        publish_state: null,
+        fb_post_id: fbPostId,
+        fb_error: fbError,
+        error_log: `IG container ${status}${check.status ? ` (${check.status})` : ''}${fbError ? ` | facebook: ${fbError}` : ''}`,
         updated_at: new Date().toISOString(),
       }).eq('id', pending.id);
 
       return { processed: true, id: pending.id, status: 'failed', error: `IG container ${status}` };
     }
 
-    // Still processing — do nothing, check again next cron run
     console.log(`[PROCESS] Video still processing (${status}), will check again`);
     return { processed: false, reason: 'video_still_processing', status };
 
@@ -376,6 +481,7 @@ async function checkPendingVideoContainers() {
     console.error(`[PROCESS] Video container check failed: ${err.message}`);
     await supabase.from('cf_content_uploads').update({
       status: 'failed',
+      publish_state: null,
       error_log: err.message,
       updated_at: new Date().toISOString(),
     }).eq('id', pending.id);
