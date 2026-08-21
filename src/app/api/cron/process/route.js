@@ -322,20 +322,19 @@ async function createVideoContainers(post, business, caption, hashtags, mediaUrl
         // Facebook Page publishing needs a Page access token, not the
         // system user token. Instagram does not. That difference is why
         // one platform can work while the other silently does not.
+        // NOTE: request ONLY access_token here. Meta rejects the whole call
+        // with "(#100) nonexisting field (tasks)" if tasks is requested on
+        // the page node via a System User token, which killed FB posting.
         const pageTokenResp = await fetch(
-          `${GRAPH_API}/${token.fb_page_id}?fields=access_token,name,tasks&access_token=${encodeURIComponent(token.access_token)}`
+          `${GRAPH_API}/${token.fb_page_id}?fields=access_token&access_token=${encodeURIComponent(token.access_token)}`
         );
         const pageTokenData = await pageTokenResp.json();
 
         if (pageTokenData.error) {
           state.fb_error = `page token lookup failed: ${describeGraphError(pageTokenData.error)}`;
         } else if (!pageTokenData.access_token) {
-          state.fb_error = `no page access token returned for page ${token.fb_page_id}. tasks=${JSON.stringify(pageTokenData.tasks || null)}`;
+          state.fb_error = `no page access token returned for page ${token.fb_page_id}`;
         } else {
-          if (Array.isArray(pageTokenData.tasks) && !pageTokenData.tasks.includes('CREATE_CONTENT')) {
-            state.fb_tasks_warning = `page tasks missing CREATE_CONTENT: ${pageTokenData.tasks.join(',')}`;
-          }
-
           const fbCaption = post.facebook_caption || caption;
           const description = tagLine ? `${fbCaption}\n\n${tagLine}` : fbCaption;
 
