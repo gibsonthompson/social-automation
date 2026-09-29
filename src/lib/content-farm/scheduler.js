@@ -3,6 +3,8 @@
  * 
  * Distributes captioned uploads across a posting calendar.
  * Enforces content pillar ratios, visual variety, and hook-strength-based timing.
+ * Respects each business's active_days: scheduling only lands on active weekdays
+ * and skips the rest (this is what the Settings "Active Days" control drives).
  * 
  * Path: src/lib/content-farm/scheduler.js
  */
@@ -29,6 +31,36 @@ function localToUTC(dateStr, timeStr, timezone) {
   return local;
 }
 
+// ── Active-day helpers ──────────────────────────────────────────
+
+// Maps a Date's weekday to the short keys used by the Settings UI.
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+function dayKeyFor(date, timezone) {
+  // Get the weekday in the business's own timezone, not the server's.
+  const wd = new Date(date.toLocaleString('en-US', { timeZone: timezone })).getDay();
+  return DAY_KEYS[wd];
+}
+
+function isActiveDay(date, activeDays, timezone) {
+  if (!activeDays || activeDays.length === 0) return true; // no restriction set
+  return activeDays.includes(dayKeyFor(date, timezone));
+}
+
+// Advance from `date` by one calendar day until we land on an active day.
+// Returns a new Date. Guards against an all-inactive config (returns the input
+// so we never loop forever).
+function nextActiveDay(date, activeDays, timezone, includeToday) {
+  if (!activeDays || activeDays.length === 0) return new Date(date);
+  const d = new Date(date);
+  if (!includeToday) d.setDate(d.getDate() + 1);
+  for (let guard = 0; guard < 14; guard++) {
+    if (isActiveDay(d, activeDays, timezone)) return d;
+    d.setDate(d.getDate() + 1);
+  }
+  return new Date(date); // all days inactive: fall back, do not hang
+}
+
 // ── Schedule a batch of uploads ─────────────────────────────────
 
 export async function scheduleUploads(batchId, startDate = null) {
@@ -48,13 +80,16 @@ export async function scheduleUploads(batchId, startDate = null) {
   const postsPerDay = business.posts_per_day || 3;
   const times = business.posting_times || ['10:00', '15:00', '19:00'];
   const timezone = business.timezone || 'America/New_York';
+  const activeDays = business.active_days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const totalDays = Math.ceil(uploads.length / postsPerDay);
 
-  // Start date: tomorrow or specified
-  const start = startDate
+  // Start date: tomorrow (or the specified date), then rolled forward to the
+  // next active day so day one itself is never an inactive day.
+  let start = startDate
     ? new Date(startDate)
     : new Date(new Date().toLocaleDateString('en-CA', { timeZone: timezone }) + 'T00:00:00');
   if (!startDate) start.setDate(start.getDate() + 1); // Default: start tomorrow
+  start = nextActiveDay(start, activeDays, timezone, true); // include the start day if it's active
 
   // Bucket by content pillar
   const buckets = { educate: [], engage: [], inspire: [], promote: [] };
@@ -65,16 +100,18 @@ export async function scheduleUploads(batchId, startDate = null) {
   });
 
   // Target ratios per day
-  const pillarOrder = ['educate', 'engage', 'inspire', 'promote'];
   const pillarWeights = { educate: 0.4, engage: 0.3, inspire: 0.2, promote: 0.1 };
 
   const scheduled = [];
   let recentTypes = []; // Track last 3 content_types globally
   let recentPillars = []; // Track last 3 pillars globally for cross-day diversity
 
+  // Walk active days only. `cursor` moves one active day at a time, so an
+  // "every other day" or "Mon/Thu only" config posts on exactly those days.
+  let cursor = new Date(start);
+
   for (let day = 0; day < totalDays; day++) {
-    const currentDate = new Date(start);
-    currentDate.setDate(currentDate.getDate() + day);
+    const currentDate = new Date(cursor);
     const dateStr = currentDate.toISOString().split('T')[0];
 
     const usedPillars = []; // Within-day (for multi-post days)
@@ -114,6 +151,9 @@ export async function scheduleUploads(batchId, startDate = null) {
       recentTypes = [...recentTypes.slice(-2), post.content_type];
       recentPillars = [...recentPillars.slice(-2), pillar];
     }
+
+    // Move the cursor to the next active day for the following batch-day.
+    cursor = nextActiveDay(cursor, activeDays, timezone, false);
   }
 
   // Write schedule to database
@@ -138,11 +178,16 @@ export async function scheduleUploads(batchId, startDate = null) {
       .eq('id', update.id);
   }
 
+  const lastDate = scheduled.length
+    ? scheduled[scheduled.length - 1].scheduledFor.split('T')[0]
+    : start.toISOString().split('T')[0];
+
   return {
     scheduled: scheduled.length,
     totalDays,
+    activeDays,
     startDate: start.toISOString().split('T')[0],
-    endDate: new Date(start.getTime() + (totalDays - 1) * 86400000).toISOString().split('T')[0],
+    endDate: lastDate,
     byPillar: {
       educate: scheduled.filter(s => s.pillar === 'educate').length,
       engage: scheduled.filter(s => s.pillar === 'engage').length,
