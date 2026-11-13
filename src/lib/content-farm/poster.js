@@ -1,5 +1,5 @@
 /**
- * Content Farm — Meta API Publisher
+ * Content Farm: Meta API Publisher
  * Handles Instagram and Facebook posting via Graph API
  * 
  * Path: src/lib/content-farm/poster.js
@@ -75,7 +75,7 @@ export async function postToInstagram(post) {
 
   // Step 1: Create media container
   const containerBody = {
-    caption: `${post.caption || ''}\n\n${(post.hashtags || []).map(h => '#' + h).join(' ')}`,
+    caption: `${post.caption || ''}\n\n${(post.hashtags || []).map(h => (String(h).startsWith('#') ? h : '#' + h)).join(' ')}`,
     access_token: token.access_token,
   };
 
@@ -153,7 +153,7 @@ export async function postToFacebook(post) {
   
   // Use facebook-specific caption if available, otherwise fall back to instagram caption
   const fbCaption = post.facebook_caption || post.caption || '';
-  const caption = `${fbCaption}\n\n${(post.hashtags || []).map(h => '#' + h).join(' ')}`;
+  const caption = `${fbCaption}\n\n${(post.hashtags || []).map(h => (String(h).startsWith('#') ? h : '#' + h)).join(' ')}`;
 
   // Get the actual Page Access Token (not the system user token)
   const pageToken = await getPageAccessToken(token.fb_page_id, token.access_token);

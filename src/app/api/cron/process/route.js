@@ -1,5 +1,27 @@
 /**
- * Process Cron - v3
+ * Process Cron - v4
+ *
+ * v4 (cadence enforcement)
+ * ------------------------
+ * 1. Only businesses with Publishing turned ON (auto_post) are published.
+ *    v3 ignored auto_post entirely, so the Settings switch did nothing.
+ * 2. Before publishing, the post is checked against the business's current
+ *    cadence: active weekday, daily limit, and how late it is. A post that is
+ *    more than 90 minutes overdue, lands on an inactive day, or would exceed
+ *    the per-day count is not published; the queue is re-flowed onto the
+ *    cadence instead. This is what stops "posted every day" when Settings
+ *    say Mon/Wed.
+ * 3. Rows stuck in 'posting' for over 30 minutes are marked failed instead of
+ *    sitting there forever.
+ * 4. After an Instagram publish the real permalink is fetched and stored in
+ *    ig_permalink. The SMS used to link /reel/<media id>, which is not a
+ *    valid Instagram URL.
+ * 5. A video still processing no longer blocks every other business from
+ *    publishing on that run.
+ * 6. Image posts now record the Facebook id and error from poster.js
+ *    (they were read from fields poster.js never returned).
+ *
+ * REQUIRES: ig_permalink column (applied)
  *
  * Called every 5 min by cron-job.org.
  * Finds approved uploads whose scheduled_for has passed, publishes them.
@@ -33,8 +55,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { publishPost } from '@/lib/content-farm/poster';
+import { normalizeCadence, utcToLocal, addDays, localToUTC } from '@/lib/content-farm/cadence';
+import { rescheduleQueue } from '@/lib/content-farm/scheduler';
 
 export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
+const OVERDUE_LIMIT_MS = 90 * 60 * 1000;   // later than this: re-slot, do not post now
+const STUCK_POSTING_MS = 30 * 60 * 1000;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -78,15 +107,23 @@ function describeGraphError(err) {
 
 // ── SMS Notification on publish ─────────────────────────────────
 
-async function notifyPostPublished(businessName, caption, platformPostId, fbError) {
+async function fetchPermalink(mediaId, accessToken) {
+  if (!mediaId || !accessToken) return null;
+  try {
+    const r = await fetch(`${GRAPH_API}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(accessToken)}`);
+    const j = await r.json();
+    return j.permalink || null;
+  } catch { return null; }
+}
+
+async function notifyPostPublished(businessName, caption, permalink, fbError) {
   const apiKey = process.env.TELNYX_API_KEY;
   const from = process.env.TELNYX_FROM_NUMBER;
   const to = process.env.NOTIFY_PHONE_NUMBER;
   if (!apiKey || !from || !to) return;
 
   const preview = (caption || '').split('\n')[0].slice(0, 60);
-  const igLink = platformPostId ? `https://www.instagram.com/reel/${platformPostId}/` : '';
-  let body = `${businessName} posted\n"${preview}"\n${igLink}`;
+  let body = `${businessName} posted\n"${preview}"${permalink ? `\n${permalink}` : ''}`;
   if (fbError) body += `\nFACEBOOK FAILED: ${String(fbError).slice(0, 120)}`;
 
   try {
@@ -108,22 +145,34 @@ export async function GET(request) {
   }
 
   try {
+    // ── Step 0: Release rows stuck in 'posting' ──
+    await releaseStuckPosts();
+
     // ── Step A: Check for videos waiting on container processing ──
     const pendingResult = await checkPendingVideoContainers();
-    if (pendingResult) return NextResponse.json(pendingResult);
+    if (pendingResult && pendingResult.processed) return NextResponse.json(pendingResult);
 
-    // ── Step B: Find the next approved upload that's due ──
+    // ── Step B: Next approved upload that is due, Publishing ON only ──
     const { data: nextPost, error: fetchErr } = await supabase
       .from('cf_content_uploads')
-      .select('*, cf_businesses(*)')
+      .select('*, cf_businesses!inner(*)')
       .eq('status', 'approved')
+      .eq('cf_businesses.auto_post', true)
       .lte('scheduled_for', new Date().toISOString())
       .order('scheduled_for', { ascending: true })
       .limit(1)
       .maybeSingle();
 
     if (fetchErr) throw new Error(`Fetch error: ${fetchErr.message}`);
-    if (!nextPost) return NextResponse.json({ processed: false, reason: 'no_due_posts' });
+    if (!nextPost) return NextResponse.json({ processed: false, reason: 'no_due_posts', video: pendingResult?.reason || null });
+
+    // ── Step C: Cadence guard ──
+    const verdict = await cadenceVerdict(nextPost);
+    if (!verdict.ok) {
+      const flow = await rescheduleQueue(nextPost.business_id);
+      console.log(`[PROCESS] Cadence guard held ${nextPost.filename} for ${nextPost.cf_businesses.name}: ${verdict.reason}. Queue re-flowed (${flow.rescheduled} moved).`);
+      return NextResponse.json({ processed: false, reason: 'cadence_guard', detail: verdict.reason, rescheduled: flow });
+    }
 
     const business = nextPost.cf_businesses;
     const startTime = Date.now();
@@ -229,19 +278,31 @@ export async function GET(request) {
         };
 
         const result = await publishPost(postForPublish);
+        const details = result.details || {};
+        const igId = details.instagram || null;
+        const fbId = details.facebook || null;
+        const fbErr = details.facebook_error || null;
+
+        let permalink = null;
+        if (igId) {
+          const igToken = await getToken(business.id, 'instagram');
+          permalink = await fetchPermalink(igId, igToken?.access_token);
+        }
 
         await supabase.from('cf_content_uploads').update({
           status: 'posted',
           platform_post_id: result.platform_post_id,
-          fb_post_id: result.fb_post_id || null,
-          fb_error: result.fb_error || null,
+          ig_permalink: permalink,
+          fb_post_id: fbId,
+          fb_error: fbErr,
+          error_log: details.instagram_error ? `instagram: ${details.instagram_error}` : null,
           posted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', nextPost.id);
 
         const duration = Date.now() - startTime;
         console.log(`[PROCESS] Published image: ${result.platform_post_id} (${duration}ms)`);
-        await notifyPostPublished(business.name, caption, result.platform_post_id, result.fb_error);
+        await notifyPostPublished(business.name, caption, permalink || (fbId ? `https://www.facebook.com/${fbId}` : null), fbErr);
 
         return NextResponse.json({
           processed: true,
@@ -412,7 +473,7 @@ async function checkPendingVideoContainers() {
         updated_at: new Date().toISOString(),
       }).eq('id', pending.id);
 
-      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, fbPostId, fbError);
+      if (fbPostId) await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, `https://www.facebook.com/${fbPostId}`, fbError);
       return { processed: true, id: pending.id, status: fbPostId ? 'posted' : 'failed', facebook: fbPostId || fbError };
     }
 
@@ -442,11 +503,13 @@ async function checkPendingVideoContainers() {
       if (published.error) throw new Error(`IG publish failed: ${describeGraphError(published.error)}`);
 
       const platformPostId = published.id;
+      const permalink = await fetchPermalink(platformPostId, igToken.access_token);
 
-      // THE FIX. Instagram succeeding no longer erases what Facebook said.
+      // Instagram succeeding never erases what Facebook said.
       await supabase.from('cf_content_uploads').update({
         status: 'posted',
         platform_post_id: platformPostId,
+        ig_permalink: permalink,
         fb_post_id: fbPostId,
         fb_error: fbError,
         posted_at: new Date().toISOString(),
@@ -456,7 +519,7 @@ async function checkPendingVideoContainers() {
       }).eq('id', pending.id);
 
       console.log(`[PROCESS] Video published to IG: ${platformPostId}${fbError ? ` (FACEBOOK FAILED: ${fbError})` : ''}`);
-      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, platformPostId, fbError);
+      await notifyPostPublished(pending.cf_businesses?.name || 'Unknown', pending.instagram_caption, permalink, fbError);
       return { processed: true, id: pending.id, status: 'posted', platform_post_id: platformPostId, facebook: fbPostId || fbError || 'not attempted' };
     }
 
@@ -487,4 +550,50 @@ async function checkPendingVideoContainers() {
 
     return { processed: true, id: pending.id, status: 'failed', error: err.message };
   }
+}
+// ── Cadence guard ───────────────────────────────────────────────
+
+async function cadenceVerdict(post) {
+  const business = post.cf_businesses;
+  const cad = normalizeCadence(business);
+  const now = Date.now();
+  const due = new Date(post.scheduled_for).getTime();
+
+  if (now - due > OVERDUE_LIMIT_MS) {
+    return { ok: false, reason: `overdue by ${Math.round((now - due) / 60000)} min` };
+  }
+
+  // Judge by the local calendar day the post was scheduled for, so a 11:55 PM
+  // slot picked up at 12:02 AM still counts against the right day.
+  const local = utcToLocal(due, cad.timezone);
+  if (!cad.activeDays.includes(local.weekday)) {
+    return { ok: false, reason: `${local.weekday} is not an active day` };
+  }
+
+  const dayStart = localToUTC(local.date, '00:00', cad.timezone).toISOString();
+  const dayEnd = localToUTC(addDays(local.date, 1), '00:00', cad.timezone).toISOString();
+  const { count } = await supabase
+    .from('cf_content_uploads')
+    .select('id', { count: 'exact', head: true })
+    .eq('business_id', business.id)
+    .or(`and(status.eq.posted,posted_at.gte.${dayStart},posted_at.lt.${dayEnd}),status.eq.publishing_video`);
+
+  if ((count || 0) >= cad.postsPerDay) {
+    return { ok: false, reason: `daily limit reached (${count}/${cad.postsPerDay})` };
+  }
+
+  return { ok: true };
+}
+
+// ── Stuck rows ──────────────────────────────────────────────────
+
+async function releaseStuckPosts() {
+  const cutoff = new Date(Date.now() - STUCK_POSTING_MS).toISOString();
+  const { data } = await supabase
+    .from('cf_content_uploads')
+    .update({ status: 'failed', error_log: 'Stuck in posting for over 30 minutes. The publish call never finished, check the account before retrying.', updated_at: new Date().toISOString() })
+    .eq('status', 'posting')
+    .lt('updated_at', cutoff)
+    .select('id');
+  if (data?.length) console.log(`[PROCESS] Released ${data.length} stuck posting row(s)`);
 }

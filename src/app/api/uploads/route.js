@@ -1,10 +1,18 @@
 /**
  * Uploads API
  * 
- * POST /api/uploads — Create upload records after files are on DO
- * POST /api/uploads/process — Trigger AI intake for a batch
- * GET  /api/uploads?batch_id=xxx — List uploads in a batch
- * GET  /api/uploads?business_id=xxx&status=scheduled — List by status
+ * POST /api/uploads  Create upload records after files are on DO
+ * POST /api/uploads/process  Trigger AI intake for a batch
+ * GET  /api/uploads?batch_id=xxx  List uploads in a batch
+ * GET  /api/uploads?business_id=xxx&status=scheduled  List by status
+ * GET  /api/uploads?business_id=xxx&statuses=scheduled,approved  Several
+ *
+ * The old GET sorted by day_number and cut off at 200 rows, so a business
+ * with a long history (Reliable Solutions has 200+) never showed its newest
+ * posts. It now sorts by schedule time and takes a real limit (max 2000).
+ *
+ * POST actions: process, schedule, approve, delete, update_caption,
+ *               retry (failed post back into the queue), reschedule
  * 
  * Path: src/app/api/uploads/route.js
  */
@@ -14,6 +22,8 @@ import { createClient } from '@supabase/supabase-js';
 import { processUpload } from '@/lib/content-farm/intake';
 
 export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -27,21 +37,23 @@ export async function GET(request) {
   const batchId = searchParams.get('batch_id');
   const businessId = searchParams.get('business_id');
   const status = searchParams.get('status');
+  const statuses = (searchParams.get('statuses') || '').split(',').map(s => s.trim()).filter(Boolean);
+  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '1000', 10) || 1000, 1), 2000);
 
   let query = supabase
     .from('cf_content_uploads')
     .select('*')
-    .order('day_number', { ascending: true, nullsFirst: false })
-    .order('scheduled_for', { ascending: true })
+    .order('scheduled_for', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true });
 
   if (batchId) query = query.eq('batch_id', batchId);
   if (businessId) query = query.eq('business_id', businessId);
   if (status) query = query.eq('status', status);
+  else if (statuses.length) query = query.in('status', statuses);
 
-  const { data, error } = await query.limit(200);
+  const { data, error } = await query.limit(limit);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ uploads: data, count: data?.length || 0 });
+  return NextResponse.json({ uploads: data, count: data?.length || 0 }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 // ── POST: Create records or trigger processing ──────────────────
@@ -72,6 +84,18 @@ export async function POST(request) {
   // Route: update caption
   if (body.action === 'update_caption') {
     return handleUpdateCaption(body);
+  }
+
+  // Route: put a failed post back in the queue
+  if (body.action === 'retry') {
+    return handleRetry(body);
+  }
+
+  // Route: re-flow a business's queue onto its cadence
+  if (body.action === 'reschedule') {
+    if (!body.business_id) return NextResponse.json({ error: 'business_id required' }, { status: 400 });
+    const { rescheduleQueue } = await import('@/lib/content-farm/scheduler');
+    return NextResponse.json(await rescheduleQueue(body.business_id));
   }
 
   // Default: create upload records
@@ -155,7 +179,7 @@ async function handleProcess(body) {
         result,
       });
     } catch (err) {
-      // Single file failed — return 200 so UI continues with next file
+      // Single file failed, return 200 so UI continues with next file
       // The record is already marked 'failed' in Supabase by processUpload
       const { count } = await supabase
         .from('cf_content_uploads')
@@ -234,7 +258,7 @@ async function handleDelete(body) {
 
   // Prevent deleting posted content (preserves learning data)
   if (upload.status === 'posted') {
-    return NextResponse.json({ error: 'Cannot delete posted content — metrics data would be lost' }, { status: 400 });
+    return NextResponse.json({ error: 'Cannot delete posted content. metrics data would be lost' }, { status: 400 });
   }
 
   // Prevent deleting while actively publishing
@@ -277,4 +301,31 @@ async function handleUpdateCaption(body) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ updated: true });
+}
+// ── Retry a failed post ─────────────────────────────────────────
+
+async function handleRetry(body) {
+  const { upload_id } = body;
+  if (!upload_id) return NextResponse.json({ error: 'upload_id required' }, { status: 400 });
+
+  const { data: row } = await supabase
+    .from('cf_content_uploads').select('id, business_id, status, instagram_caption')
+    .eq('id', upload_id).maybeSingle();
+  if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (row.status !== 'failed') return NextResponse.json({ error: `Only failed posts can be retried (this one is ${row.status})` }, { status: 400 });
+  if (!row.instagram_caption) return NextResponse.json({ error: 'This post never got a caption. Delete it and upload the file again.' }, { status: 400 });
+
+  // Far-future placeholder so the re-flow puts it at the END of the queue.
+  const { error } = await supabase.from('cf_content_uploads').update({
+    status: 'approved',
+    scheduled_for: '2999-01-01T00:00:00Z',
+    error_log: null,
+    publish_state: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', upload_id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const { rescheduleQueue } = await import('@/lib/content-farm/scheduler');
+  const flow = await rescheduleQueue(row.business_id);
+  return NextResponse.json({ retried: true, reschedule: flow });
 }

@@ -564,4 +564,4 @@ export async function processBatch(batchId) {
     catch (err) { console.error(`[INTAKE] Failed ${upload.id}: ${err.message}`); errors++; }
   }
   return { processed, errors, total: uploads.length };
-}
+} 

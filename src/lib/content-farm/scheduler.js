@@ -1,70 +1,123 @@
 /**
  * Content Scheduler
- * 
- * Distributes captioned uploads across a posting calendar.
- * Enforces content pillar ratios, visual variety, and hook-strength-based timing.
- * Respects each business's active_days: scheduling only lands on active weekdays
- * and skips the rest (this is what the Settings "Active Days" control drives).
- * 
+ *
+ * Two jobs:
+ *   scheduleUploads(batchId)    Put a freshly captioned batch on the calendar,
+ *                               AFTER whatever is already queued, using the
+ *                               business's current cadence.
+ *   rescheduleQueue(businessId) Re-flow every queued post (scheduled or
+ *                               approved) onto the current cadence. Runs
+ *                               whenever Settings are saved, so changing the
+ *                               times or days in the UI changes what is
+ *                               already on the calendar, not only future
+ *                               uploads. The publishing cron also calls it
+ *                               if it ever finds a post sitting on a slot the
+ *                               cadence no longer allows.
+ *
+ * All date math lives in cadence.js and is timezone safe.
+ *
  * Path: src/lib/content-farm/scheduler.js
  */
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  normalizeCadence, generateSlots, utcToLocal, todayLocal, daysBetween,
+  timeSlotLabel, localToUTC,
+} from './cadence';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ── Timezone helper ─────────────────────────────────────────────
+export const QUEUED_STATUSES = ['scheduled', 'approved'];
+const IN_FLIGHT_STATUSES = ['posting', 'publishing_video'];
 
-function getTimezoneOffset(timeZone, date) {
-  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
-  const localStr = date.toLocaleString('en-US', { timeZone });
-  return (new Date(utcStr) - new Date(localStr)) / 60000;
-}
+// ── Shared: how many posts each local day already "spent" ───────
 
-function localToUTC(dateStr, timeStr, timezone) {
-  const local = new Date(`${dateStr}T${timeStr}:00`);
-  const offset = getTimezoneOffset(timezone, local);
-  local.setMinutes(local.getMinutes() + offset);
-  return local;
-}
+async function usageForBusiness(business) {
+  const cad = normalizeCadence(business);
+  const today = todayLocal(cad.timezone);
+  const startOfToday = localToUTC(today, '00:00', cad.timezone).toISOString();
 
-// ── Active-day helpers ──────────────────────────────────────────
+  // Posts that went out today, plus posts mid-publish right now.
+  const { data: spent } = await supabase
+    .from('cf_content_uploads')
+    .select('id, status, posted_at, scheduled_for')
+    .eq('business_id', business.id)
+    .or(`and(status.eq.posted,posted_at.gte.${startOfToday}),status.in.(${IN_FLIGHT_STATUSES.join(',')})`);
 
-// Maps a Date's weekday to the short keys used by the Settings UI.
-const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-
-function dayKeyFor(date, timezone) {
-  // Get the weekday in the business's own timezone, not the server's.
-  const wd = new Date(date.toLocaleString('en-US', { timeZone: timezone })).getDay();
-  return DAY_KEYS[wd];
-}
-
-function isActiveDay(date, activeDays, timezone) {
-  if (!activeDays || activeDays.length === 0) return true; // no restriction set
-  return activeDays.includes(dayKeyFor(date, timezone));
-}
-
-// Advance from `date` by one calendar day until we land on an active day.
-// Returns a new Date. Guards against an all-inactive config (returns the input
-// so we never loop forever).
-function nextActiveDay(date, activeDays, timezone, includeToday) {
-  if (!activeDays || activeDays.length === 0) return new Date(date);
-  const d = new Date(date);
-  if (!includeToday) d.setDate(d.getDate() + 1);
-  for (let guard = 0; guard < 14; guard++) {
-    if (isActiveDay(d, activeDays, timezone)) return d;
-    d.setDate(d.getDate() + 1);
+  const usedPerDay = {};
+  for (const row of spent || []) {
+    usedPerDay[today] = (usedPerDay[today] || 0) + 1;
   }
-  return new Date(date); // all days inactive: fall back, do not hang
+  return { cad, today, usedPerDay, spentToday: usedPerDay[today] || 0 };
 }
 
-// ── Schedule a batch of uploads ─────────────────────────────────
+function dayNumberFor(dateStr, today) {
+  return Math.max(1, daysBetween(today, dateStr) + 1);
+}
+
+async function writeSlots(rows, slots, today, extra = {}) {
+  let changed = 0;
+  const now = new Date().toISOString();
+  // Small batches in parallel keeps a 200-post re-flow well inside 60s.
+  const jobs = rows.map((row, i) => async () => {
+    const slot = slots[i];
+    if (!slot) return;
+    const update = {
+      scheduled_for: slot.iso,
+      time_slot: timeSlotLabel(slot.time),
+      day_number: dayNumberFor(slot.date, today),
+      updated_at: now,
+      ...extra,
+    };
+    const same = row.scheduled_for && new Date(row.scheduled_for).toISOString() === slot.iso && !extra.status;
+    if (same) return;
+    const { error } = await supabase.from('cf_content_uploads').update(update).eq('id', row.id);
+    if (!error) changed++;
+    else console.error(`[SCHEDULER] update failed for ${row.id}: ${error.message}`);
+  });
+  for (let i = 0; i < jobs.length; i += 10) {
+    await Promise.all(jobs.slice(i, i + 10).map(fn => fn()));
+  }
+  return changed;
+}
+
+// ── Re-flow the existing queue onto the current cadence ─────────
+
+export async function rescheduleQueue(businessId) {
+  const { data: business, error: bizErr } = await supabase
+    .from('cf_businesses').select('*').eq('id', businessId).maybeSingle();
+  if (bizErr || !business) return { rescheduled: 0, error: bizErr?.message || 'business not found' };
+
+  const { data: queued, error } = await supabase
+    .from('cf_content_uploads')
+    .select('id, status, scheduled_for, created_at')
+    .eq('business_id', businessId)
+    .in('status', QUEUED_STATUSES)
+    .order('scheduled_for', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+    .limit(2000);
+
+  if (error) return { rescheduled: 0, error: error.message };
+  if (!queued?.length) return { rescheduled: 0, queued: 0, first: null, last: null };
+
+  const { today, usedPerDay } = await usageForBusiness(business);
+  const slots = generateSlots(business, queued.length, { usedPerDay });
+  const changed = await writeSlots(queued, slots, today);
+
+  return {
+    rescheduled: changed,
+    queued: queued.length,
+    first: slots[0]?.iso || null,
+    last: slots[slots.length - 1]?.iso || null,
+  };
+}
+
+// ── Schedule a newly captioned batch ────────────────────────────
 
 export async function scheduleUploads(batchId, startDate = null) {
-  // Get all captioned uploads in this batch
   const { data: uploads, error } = await supabase
     .from('cf_content_uploads')
     .select('*, cf_businesses(*)')
@@ -77,225 +130,141 @@ export async function scheduleUploads(batchId, startDate = null) {
   }
 
   const business = uploads[0].cf_businesses;
-  const postsPerDay = business.posts_per_day || 3;
-  const times = business.posting_times || ['10:00', '15:00', '19:00'];
-  const timezone = business.timezone || 'America/New_York';
-  const activeDays = business.active_days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const totalDays = Math.ceil(uploads.length / postsPerDay);
+  const cad = normalizeCadence(business);
 
-  // Start date: tomorrow (or the specified date), then rolled forward to the
-  // next active day so day one itself is never an inactive day.
-  let start = startDate
-    ? new Date(startDate)
-    : new Date(new Date().toLocaleDateString('en-CA', { timeZone: timezone }) + 'T00:00:00');
-  if (!startDate) start.setDate(start.getDate() + 1); // Default: start tomorrow
-  start = nextActiveDay(start, activeDays, timezone, true); // include the start day if it's active
+  // 1. Decide the ORDER (pillar mix, visual and type variety). Unchanged
+  //    from the original logic, just separated from the dates.
+  const ordered = orderByPillarMix(uploads, cad.postsPerDay);
 
-  // Bucket by content pillar
-  const buckets = { educate: [], engage: [], inspire: [], promote: [] };
-  uploads.forEach(u => {
-    const pillar = u.content_pillar || 'educate';
-    if (buckets[pillar]) buckets[pillar].push(u);
-    else buckets.educate.push(u);
-  });
+  // 2. Find where the existing queue ends so the batch goes after it.
+  //    Before this fix a new batch always started "tomorrow", on top of
+  //    the posts already queued, which doubled the posting rate.
+  const { data: queued } = await supabase
+    .from('cf_content_uploads')
+    .select('scheduled_for')
+    .eq('business_id', business.id)
+    .in('status', QUEUED_STATUSES)
+    .not('scheduled_for', 'is', null);
 
-  // Target ratios per day
-  const pillarWeights = { educate: 0.4, engage: 0.3, inspire: 0.2, promote: 0.1 };
-
-  const scheduled = [];
-  let recentTypes = []; // Track last 3 content_types globally
-  let recentPillars = []; // Track last 3 pillars globally for cross-day diversity
-
-  // Walk active days only. `cursor` moves one active day at a time, so an
-  // "every other day" or "Mon/Thu only" config posts on exactly those days.
-  let cursor = new Date(start);
-
-  for (let day = 0; day < totalDays; day++) {
-    const currentDate = new Date(cursor);
-    const dateStr = currentDate.toISOString().split('T')[0];
-
-    const usedPillars = []; // Within-day (for multi-post days)
-    const usedModes = [];
-
-    for (let slot = 0; slot < postsPerDay; slot++) {
-      // Combine within-day and global history for pillar selection
-      const combinedPillarHistory = [...recentPillars.slice(-2), ...usedPillars];
-      let pillar = pickPillar(pillarWeights, combinedPillarHistory, buckets);
-
-      if (!pillar) {
-        const fallbackPost = pickFromAnyBucket(buckets, usedModes, recentTypes);
-        if (!fallbackPost) continue;
-        scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
-        usedPillars.push(fallbackPost.content_pillar);
-        usedModes.push(fallbackPost.visual_mode);
-        recentTypes = [...recentTypes.slice(-2), fallbackPost.content_type];
-        recentPillars = [...recentPillars.slice(-2), fallbackPost.content_pillar];
-        continue;
-      }
-
-      const post = pickPost(buckets[pillar], usedModes, recentTypes);
-      if (!post) {
-        const fallbackPost = pickFromAnyBucket(buckets, usedModes, recentTypes);
-        if (!fallbackPost) continue;
-        scheduled.push(buildSlot(fallbackPost, dateStr, times[slot], timezone, day + 1, slot));
-        usedPillars.push(fallbackPost.content_pillar);
-        usedModes.push(fallbackPost.visual_mode);
-        recentTypes = [...recentTypes.slice(-2), fallbackPost.content_type];
-        recentPillars = [...recentPillars.slice(-2), fallbackPost.content_pillar];
-        continue;
-      }
-
-      scheduled.push(buildSlot(post, dateStr, times[slot], timezone, day + 1, slot));
-      usedPillars.push(pillar);
-      usedModes.push(post.visual_mode);
-      recentTypes = [...recentTypes.slice(-2), post.content_type];
-      recentPillars = [...recentPillars.slice(-2), pillar];
-    }
-
-    // Move the cursor to the next active day for the following batch-day.
-    cursor = nextActiveDay(cursor, activeDays, timezone, false);
+  const { today, usedPerDay } = await usageForBusiness(business);
+  const taken = new Set();
+  let lastQueuedMs = 0;
+  for (const q of queued || []) {
+    const iso = new Date(q.scheduled_for).toISOString();
+    taken.add(iso);
+    const local = utcToLocal(iso, cad.timezone).date;
+    usedPerDay[local] = (usedPerDay[local] || 0) + 1;
+    lastQueuedMs = Math.max(lastQueuedMs, new Date(iso).getTime());
   }
 
-  // Write schedule to database
-  const updates = scheduled.map(s => ({
-    id: s.uploadId,
-    scheduled_for: s.scheduledFor,
-    time_slot: s.timeSlot,
-    day_number: s.dayNumber,
-    status: 'scheduled',
-    updated_at: new Date().toISOString(),
-  }));
-
-  for (const update of updates) {
-    await supabase.from('cf_content_uploads')
-      .update({
-        scheduled_for: update.scheduled_for,
-        time_slot: update.time_slot,
-        day_number: update.day_number,
-        status: update.status,
-        updated_at: update.updated_at,
-      })
-      .eq('id', update.id);
+  let fromMs = Math.max(Date.now() + 2 * 60000, lastQueuedMs + 60000);
+  if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    fromMs = Math.max(fromMs, localToUTC(startDate, '00:00', cad.timezone).getTime());
   }
 
-  const lastDate = scheduled.length
-    ? scheduled[scheduled.length - 1].scheduledFor.split('T')[0]
-    : start.toISOString().split('T')[0];
+  const slots = generateSlots(business, ordered.length, { fromMs, usedPerDay, taken });
+  await writeSlots(ordered, slots, today, { status: 'scheduled' });
+
+  const pillars = { educate: 0, engage: 0, inspire: 0, promote: 0 };
+  ordered.forEach(u => { if (pillars[u.content_pillar] !== undefined) pillars[u.content_pillar]++; });
 
   return {
-    scheduled: scheduled.length,
-    totalDays,
-    activeDays,
-    startDate: start.toISOString().split('T')[0],
-    endDate: lastDate,
-    byPillar: {
-      educate: scheduled.filter(s => s.pillar === 'educate').length,
-      engage: scheduled.filter(s => s.pillar === 'engage').length,
-      inspire: scheduled.filter(s => s.pillar === 'inspire').length,
-      promote: scheduled.filter(s => s.pillar === 'promote').length,
-    },
+    scheduled: Math.min(ordered.length, slots.length),
+    postsPerDay: cad.postsPerDay,
+    times: cad.times,
+    activeDays: cad.activeDays,
+    startDate: slots[0]?.date || null,
+    endDate: slots[slots.length - 1]?.date || null,
+    byPillar: pillars,
   };
 }
 
-// ── Helper: Pick pillar based on weights, avoiding repeats ──────
+// ── Ordering: pillar ratios and variety ─────────────────────────
+
+function orderByPillarMix(uploads, postsPerDay) {
+  const buckets = { educate: [], engage: [], inspire: [], promote: [] };
+  uploads.forEach(u => {
+    const pillar = u.content_pillar || 'educate';
+    (buckets[pillar] || buckets.educate).push(u);
+  });
+  const weights = { educate: 0.4, engage: 0.3, inspire: 0.2, promote: 0.1 };
+
+  const out = [];
+  let recentTypes = [];
+  let recentPillars = [];
+  let usedPillars = [];
+  let usedModes = [];
+
+  while (out.length < uploads.length) {
+    if (out.length % Math.max(1, postsPerDay) === 0) { usedPillars = []; usedModes = []; }
+    const history = [...recentPillars.slice(-2), ...usedPillars];
+    const pillar = pickPillar(weights, history, buckets);
+    let post = pillar ? pickPost(buckets[pillar], usedModes, recentTypes) : null;
+    if (!post) post = pickFromAnyBucket(buckets, usedModes, recentTypes);
+    if (!post) break;
+    out.push(post);
+    usedPillars.push(post.content_pillar);
+    usedModes.push(post.visual_mode);
+    recentTypes = [...recentTypes.slice(-2), post.content_type];
+    recentPillars = [...recentPillars.slice(-2), post.content_pillar];
+  }
+  return out;
+}
 
 function pickPillar(weights, used, buckets) {
-  // Sort pillars by how underrepresented they are
   const candidates = Object.entries(weights)
     .filter(([pillar]) => buckets[pillar]?.length > 0)
     .filter(([pillar]) => !used.includes(pillar) || used.length >= Object.keys(weights).length)
     .sort((a, b) => {
-      const aUsed = used.filter(p => p === a[0]).length;
-      const bUsed = used.filter(p => p === b[0]).length;
-      const aRatio = aUsed / (a[1] * 100 || 1);
-      const bRatio = bUsed / (b[1] * 100 || 1);
+      const aRatio = used.filter(p => p === a[0]).length / (a[1] * 100 || 1);
+      const bRatio = used.filter(p => p === b[0]).length / (b[1] * 100 || 1);
       return aRatio - bRatio;
     });
-
   return candidates[0]?.[0] || null;
 }
 
-// ── Helper: Pick post from bucket, avoiding visual mode AND content type repeats ──
-
 function pickPost(bucket, usedModes, recentTypes = []) {
   if (!bucket?.length) return null;
-
   const lastMode = usedModes[usedModes.length - 1];
   const lastType = recentTypes[recentTypes.length - 1];
-
-  // Best: different visual mode AND different content type
   const best = bucket.findIndex(p => p.visual_mode !== lastMode && p.content_type !== lastType);
   if (best >= 0) return bucket.splice(best, 1)[0];
-
-  // Good: different content type (even if same mode)
   const diffType = bucket.findIndex(p => p.content_type !== lastType);
   if (diffType >= 0) return bucket.splice(diffType, 1)[0];
-
-  // Okay: different visual mode (even if same type)
   const diffMode = bucket.findIndex(p => p.visual_mode !== lastMode);
   if (diffMode >= 0) return bucket.splice(diffMode, 1)[0];
-
-  // Fallback: just take the first
   return bucket.shift();
 }
 
-// ── Helper: Pick from any bucket ────────────────────────────────
-
 function pickFromAnyBucket(buckets, usedModes, recentTypes = []) {
   const lastType = recentTypes[recentTypes.length - 1];
-
-  // First pass: find any post with a different content_type
   for (const pillar of ['educate', 'engage', 'inspire', 'promote']) {
     if (!buckets[pillar]?.length) continue;
     const idx = buckets[pillar].findIndex(p => p.content_type !== lastType);
     if (idx >= 0) return buckets[pillar].splice(idx, 1)[0];
   }
-
-  // Second pass: just take anything
   for (const pillar of ['educate', 'engage', 'inspire', 'promote']) {
     if (buckets[pillar]?.length) return buckets[pillar].shift();
   }
   return null;
 }
 
-// ── Helper: Build schedule slot ─────────────────────────────────
-
-function buildSlot(upload, dateStr, timeStr, timezone, dayNumber, slotIndex) {
-  const scheduledFor = localToUTC(dateStr, timeStr, timezone);
-  const hour = parseInt(timeStr.split(':')[0]);
-  const timeSlot = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
-
-  return {
-    uploadId: upload.id,
-    pillar: upload.content_pillar,
-    visualMode: upload.visual_mode,
-    hookStrength: upload.hook_strength,
-    scheduledFor: scheduledFor.toISOString(),
-    timeSlot,
-    dayNumber,
-    slotIndex,
-  };
-}
-
-// ── Approve all scheduled posts in a batch ──────────────────────
+// ── Approvals ───────────────────────────────────────────────────
 
 export async function approveBatch(batchId) {
   const { data, error } = await supabase
     .from('cf_content_uploads')
     .update({ status: 'approved', updated_at: new Date().toISOString() })
     .eq('batch_id', batchId)
-    .eq('status', 'scheduled');
-
+    .eq('status', 'scheduled')
+    .select('id');
   return { approved: data?.length || 0, error: error?.message };
 }
-
-// ── Approve single post ─────────────────────────────────────────
 
 export async function approvePost(uploadId) {
   const { error } = await supabase
     .from('cf_content_uploads')
     .update({ status: 'approved', updated_at: new Date().toISOString() })
     .eq('id', uploadId);
-
   return { success: !error, error: error?.message };
 }
