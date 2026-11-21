@@ -138,7 +138,7 @@ export default function QueueView({ b, refreshBiz, onNavigate }) {
           { value: 'approved', label: `Approved (${scheduledRows.length - needsReview.length})` },
         ]} />
         <div className="cf-spacer" />
-        <span style={{ fontSize: 12.5, color: 'var(--tx-muted)' }}>{cad.text}</span>
+        <button onClick={() => onNavigate('settings')} title="Change the posting schedule" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--tx-muted)', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'underline', textDecorationColor: 'var(--bd-strong)', textUnderlineOffset: 3 }}><Icon name="edit" size={12} />{cad.text}</button>
         <Btn size="sm" variant="ghost" onClick={reflow} disabled={busy || !scheduledRows.length} title="Re-time every queued post to the current Settings"><Icon name="clock" size={14} />Re-apply Schedule</Btn>
         {needsReview.length > 0 && <Btn size="sm" variant="primary" onClick={approveAll} disabled={busy}><Icon name="check" size={14} />Approve All</Btn>}
         <Btn size="sm" variant="ghost" icon onClick={load} title="Refresh"><Icon name="refresh" size={14} /></Btn>

@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Btn, Icon, Overlays, toast } from '@/components/ui';
+import { Btn, Icon, Overlays, Select, toast } from '@/components/ui';
 import { describeCadence } from '@/lib/content-farm/cadence';
 import { api, LivePill } from '@/components/farm/shared';
 import OverviewView from '@/components/farm/OverviewView';
@@ -26,7 +26,7 @@ const NAV = [
   { id: 'upload', label: 'Upload', icon: 'upload' },
   { id: 'history', label: 'History', icon: 'history' },
   { id: 'insights', label: 'Insights', icon: 'chart' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
+  { id: 'settings', label: 'Posting Schedule', icon: 'clock' },
 ];
 
 const TITLES = {
@@ -36,7 +36,7 @@ const TITLES = {
   upload: 'Upload Content',
   history: 'Post History',
   insights: 'Insights',
-  settings: 'Posting Settings',
+  settings: 'Posting Schedule',
 };
 
 function readPref(key, fallback) {
@@ -138,7 +138,17 @@ export default function ContentFarm() {
             <div className="cf-subtitle">{subtitle}</div>
           </div>
           <div className="cf-header-actions">
+            {brandScoped && b && (
+              <Select
+                value={bizId}
+                onChange={setBizId}
+                width={250}
+                options={biz.map(x => ({ value: x.id, label: x.name, dot: x.primary_color || 'var(--cyan)', hint: x.auto_post === true ? 'Live' : 'Paused' }))}
+                renderValue={o => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span className="cf-biz-dot" style={{ background: o.dot }} />{o.label}</span>}
+              />
+            )}
             {brandScoped && b && <LivePill business={b} />}
+            {brandScoped && b && page !== 'settings' && <Btn size="sm" onClick={() => setPage('settings')}><Icon name="clock" size={14} />Change Schedule</Btn>}
             {page !== 'upload' && brandScoped && b && <Btn size="sm" variant="primary" onClick={() => setPage('upload')}><Icon name="upload" size={14} />Upload</Btn>}
             {page === 'overview' && <Btn size="sm" variant="ghost" icon onClick={() => refreshBiz().then(() => toast('Refreshed', 'success'))} title="Refresh"><Icon name="refresh" size={14} /></Btn>}
           </div>

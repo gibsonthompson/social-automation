@@ -97,7 +97,7 @@ export default function OverviewView({ biz, onOpenBiz }) {
               <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
                 <Btn size="sm" onClick={() => onOpenBiz(b.id, 'queue')}><Icon name="calendar" size={14} />Queue</Btn>
                 <Btn size="sm" onClick={() => onOpenBiz(b.id, 'history')}><Icon name="history" size={14} />History</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => onOpenBiz(b.id, 'settings')}><Icon name="settings" size={14} />Settings</Btn>
+                <Btn size="sm" variant="primary" onClick={() => onOpenBiz(b.id, 'settings')}><Icon name="clock" size={14} />Change Schedule</Btn>
               </div>
             </div>
           );
