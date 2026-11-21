@@ -4,7 +4,7 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-sans' });
 
 export const metadata = {
-  title: 'Content Farm',
+  title: 'Social Media Farm',
   description: 'Scheduling, publishing and performance for every brand in one place',
 };
 
